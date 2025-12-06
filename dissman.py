@@ -26,8 +26,8 @@ from escpos.printer import Usb
 from openai import OpenAI
 
 GPIO_PIN = 17
-#environment variable for key
-OPENAI_API_KEY
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
 
 coin_acceptor = GPIOButton(GPIO_PIN)
 
@@ -202,8 +202,6 @@ class LoadScreen(Screen):
 
     def fetch_image(self):
         try:
-            client = OpenAI(OPENAI_API_KEY)
-
             # Get the last image path from the App class
             last_image_path = App.get_running_app().last_image_path
 
