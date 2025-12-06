@@ -23,8 +23,11 @@ import numpy as np
 from gpiozero import Button as GPIOButton
 #from signal import pause
 from escpos.printer import Usb
+from openai import OpenAI
 
 GPIO_PIN = 17
+#environment variable for key
+OPENAI_API_KEY
 
 coin_acceptor = GPIOButton(GPIO_PIN)
 
@@ -199,7 +202,7 @@ class LoadScreen(Screen):
 
     def fetch_image(self):
         try:
-            client = OpenAI()
+            client = OpenAI(OPENAI_API_KEY)
 
             # Get the last image path from the App class
             last_image_path = App.get_running_app().last_image_path
@@ -403,6 +406,7 @@ class InsultMasterApp(App):
         except Exception as e:
             print(f"Error closing coin_acceptor: {e}")
         return super().on_stop()
+
 
 if __name__ == '__main__':
     InsultMasterApp().run()
