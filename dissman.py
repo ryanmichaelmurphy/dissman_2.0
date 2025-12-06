@@ -273,6 +273,7 @@ class DisplayScreen(Screen):
         self.manager.current = 'splash'
 
     def print_qr(self, p):
+        print("DEBUG: print_qr called")
         p._raw(b'\x1b\x40')   
         p.text("\n\n")
         p.text('link to code and\n')
