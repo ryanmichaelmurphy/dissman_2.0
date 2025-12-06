@@ -280,13 +280,23 @@ class DisplayScreen(Screen):
         self.manager.current = 'splash'
 
     def print_qr(self, p):
+        # --- debounce so we don't print twice on a double-trigger ---
+        now = time.time()
+        # _last_qr_ts will default to 0 if it doesn't exist yet
+        last = getattr(self, "_last_qr_ts", 0)
+        if now - last < 2.0:
+            print("DEBUG: print_qr debounced, ignoring extra tap")
+            return
+        self._last_qr_ts = now
+
         print("DEBUG: print_qr called")
-        p._raw(b'\x1b\x40')   
+
+        p._raw(b'\x1b\x40')
         p.text("\n\n")
         p.text('link to code and\n')
         p.text(r'"artist" statement')
         p.text("\n\n")
-        p.image(path+"qrcode_scaled.png")
+        p.image(path + "qrcode_scaled.png")
         p.text("\n\n\n\n")
         p._raw(b'\x1b\x40')
 
