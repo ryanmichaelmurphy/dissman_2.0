@@ -31,7 +31,7 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 coin_acceptor = GPIOButton(GPIO_PIN)
 
-p = Usb(0x0416, 0x5011, in_ep=0x87, out_ep=0x06, profile='POS-5890')
+p = Usb(0x0416, 0x5011, in_ep=0x81, out_ep=0x01, profile='POS-5890')
 
 path = '/home/dissman/Documents/app/' # path to files 
 
