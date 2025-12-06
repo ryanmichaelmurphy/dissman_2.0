@@ -289,7 +289,7 @@ class DisplayScreen(Screen):
         image = Image.open(image_path)
         max_width = 380
         max_height = 380
-        image = image.resize((max_width, max_height), Image.ANTIALIAS)
+        image = image.resize((max_width, max_height), Image.Resampling.LANCZOS)
 
         # Decrease the contrast of the image
         enhancer = ImageEnhance.Contrast(image)
