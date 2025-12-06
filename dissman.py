@@ -228,10 +228,16 @@ class LoadScreen(Screen):
                 print(f"Error: Received status code {image_response.status_code} from image request.")
         except requests.RequestException as e:
             print(f"Error: Failed to fetch the image from the URL. {e}")
-            self.manager.current = 'splash'
+            Clock.schedule_once(
+                lambda dt: setattr(self.manager, "current", "splash"),
+                0,
+            )
         except Exception as e:
             print(f"An unexpected error occurred: {e}")
-            self.manager.current = 'splash'
+            Clock.schedule_once(
+                lambda dt: setattr(self.manager, "current", "splash"),
+                0,
+            )
 
     def check_image_ready(self, dt):
         base_path = f'{path}thinking'
