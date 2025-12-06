@@ -291,12 +291,15 @@ class DisplayScreen(Screen):
 
         print("DEBUG: print_qr called")
 
+
         p._raw(b'\x1b\x40')
+        p._raw(b'\x1b\x61\x01')  # ESC a 1 → center alignment
         p.text("\n\n")
         p.text('link to code and\n')
         p.text(r'"artist" statement')
         p.text("\n\n")
         p.image(path + "qrcode_scaled.png")
+        p._raw(b'\x1b\x61\x00')  # ESC a 0 → revert to left alignment
         p.text("\n\n\n\n")
         p._raw(b'\x1b\x40')
 
