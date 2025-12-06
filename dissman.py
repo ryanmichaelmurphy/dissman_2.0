@@ -253,6 +253,10 @@ class LoadScreen(Screen):
 
 class DisplayScreen(Screen):
     def on_enter(self, *args):
+        if self.has_entered:
+            return
+        self.has_entered = True
+
         # Add functionality to print image and insult text
         self.ids.qr_button.clear_widgets()  # Clear existing buttons
         dall_e_image_path = self.ids.dall_e_image.source
@@ -269,6 +273,7 @@ class DisplayScreen(Screen):
         Clock.schedule_once(lambda x: self.cleanup_and_restart(), 10)
 
     def cleanup_and_restart(self):
+        self.has_entered = False
         self.p = None  # Release the printer by removing the reference
         self.manager.current = 'splash'
 
