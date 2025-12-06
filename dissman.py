@@ -252,6 +252,8 @@ class LoadScreen(Screen):
             return False  # Unschedule the interval if image is ready
 
 class DisplayScreen(Screen):
+    has_entered = False
+    
     def on_enter(self, *args):
         if self.has_entered:
             return
