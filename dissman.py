@@ -255,7 +255,7 @@ class DisplayScreen(Screen):
     has_entered = False
     
     def on_enter(self, *args):
-        if self.has_entered:
+        if getattr(self, "has_entered", False):
             return
         self.has_entered = True
 
