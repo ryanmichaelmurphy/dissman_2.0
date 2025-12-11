@@ -21,6 +21,7 @@ import subprocess
 import cv2
 import numpy as np
 from gpiozero import Button as GPIOButton
+from gpiozero.exc import BadPinFactory
 #from signal import pause
 from escpos.printer import Usb
 from openai import OpenAI
@@ -29,7 +30,13 @@ GPIO_PIN = 17
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
-coin_acceptor = GPIOButton(GPIO_PIN)
+coin_acceptor = None
+try:
+    coin_acceptor = GPIOButton(GPIO_PIN)
+except BadPinFactory:
+    print("GPIO not available on this device; coin input disabled.")
+except Exception as e:
+    print(f"GPIO init failed ({e}); coin input disabled.")
 
 p = Usb(0x0416, 0x5011, in_ep=0x81, out_ep=0x01, profile='POS-5890')
 
@@ -362,7 +369,13 @@ class SplashScreen(Screen):
         self.current_image = 1
         print("waiting for coin...")
         self.animation_event = Clock.schedule_interval(self.update_image, 0.75)  # Change image every 0.75 seconds
-        coin_acceptor.when_activated = self.stop_animation_and_schedule_switch
+        
+        if coin_acceptor is not None:
+            coin_acceptor.when_activated = self.stop_animation_and_schedule_switch
+        else:
+            # simulate coin insertion after 3 seconds on non-Pi systems
+            
+            Timer(3.0, self.stop_animation_and_schedule_switch).start()
 
     def update_image(self, dt):
         if self.current_image == 1:
@@ -426,10 +439,11 @@ class InsultMasterApp(App):
         
     def on_stop(self):
         # Clean up GPIO so the pin isn't "busy" on the next run
-        try:
-            coin_acceptor.close()
-        except Exception as e:
-            print(f"Error closing coin_acceptor: {e}")
+        if coin_acceptor is not None:
+            try:
+                coin_acceptor.close()
+            except Exception as e:
+                print(f"Error closing coin_acceptor: {e}")
         return super().on_stop()
 
 
