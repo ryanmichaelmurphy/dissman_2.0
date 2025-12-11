@@ -14,6 +14,7 @@ from kivy.clock import mainthread
 import random
 import io
 import threading
+from threading import Timer
 import requests
 import time
 import os
@@ -28,9 +29,9 @@ from openai import OpenAI
 
 GPIO_PIN = 17
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-
+path = '/home/dissman/Documents/app/'
 coin_acceptor = None
+
 try:
     coin_acceptor = GPIOButton(GPIO_PIN)
 except BadPinFactory:
@@ -42,9 +43,10 @@ try:
     p = Usb(0x0416, 0x5011, in_ep=0x81, out_ep=0x01, profile='POS-5890')
 except Exception as e:
     print(f"Printer init failed ({e}); printing disabled.")
+    path = 'Desktop/dissman_2/dissman_2.0/'
     p = None
 
-path = '/home/dissman/Documents/app/' # path to files 
+ # path to files 
 
 Builder.load_file(path + 'insultmaster3.kv')
 

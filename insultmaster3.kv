@@ -1,0 +1,131 @@
+<CategoryScreen>:
+    BoxLayout:
+        orientation: 'vertical'
+        padding: app.theme_vars['padding']
+        spacing: app.theme_vars['spacing']
+        canvas.before:
+            Color:
+                rgba: app.theme_colors['background']
+            Rectangle:
+                size: self.size
+                pos: self.pos
+        Label:
+            id: title
+            text: 'Dissman'
+            font_name: app.fonts['heading']
+            font_size: '24sp'
+            color: app.theme_colors['primary']
+            size_hint_y: None
+            height: 40
+			spacing: 20
+        Image:
+            source: 'face.png'
+            size_hint_y: None
+            height: 165 
+        Label:
+            id: header
+            text: 'Choose Insult Type'
+            font_name: app.fonts['body']
+            font_size: '18sp'
+            color: app.theme_colors['secondary']
+            size_hint_y: None
+            height: 30
+        BoxLayout:
+            id: categories
+            orientation: 'vertical'
+            size_hint_y: None
+            height: self.minimum_height
+            padding: app.theme_vars['padding']
+            spacing: app.theme_vars['spacing']
+            canvas.before:
+                Color:
+                    rgba: app.theme_colors['background']
+                Rectangle:
+                    size: self.size
+                    pos: self.pos
+
+<InsultScreen>:
+    BoxLayout:
+        orientation: 'vertical'
+        padding: app.theme_vars['padding']
+        spacing: app.theme_vars['spacing']
+		canvas.before:
+            Color:
+                rgba: app.theme_colors['background']
+            Rectangle:
+                size: self.size
+                pos: self.pos
+        Label:
+            id: header
+            text: ''
+            font_name: app.fonts['heading']
+            font_size: '24sp'
+            color: app.theme_colors['primary']
+            size_hint_y: None
+            height: 40
+		Image:
+            source: 'face.png'
+            size_hint_y: None
+            height: 165  
+        ScrollView:
+            BoxLayout:
+				padding: app.theme_vars['padding']
+				spacing: app.theme_vars['spacing']
+                id: insult_options
+                orientation: 'vertical'
+                size_hint_y: None
+                height: self.minimum_height
+
+<DisplayScreen>:
+    BoxLayout:
+        orientation: 'vertical'
+        padding: app.theme_vars['padding']
+        spacing: app.theme_vars['spacing']
+        canvas.before:
+            Color:
+                rgba: app.theme_colors['background']
+            Rectangle:
+                size: self.size
+                pos: self.pos
+        Label:
+            text: 'This is what you look like...'
+            font_name: app.fonts['heading']
+            font_size: '24sp'
+            color: app.theme_colors['primary']
+            size_hint_y: None
+            height: 40
+        Image:
+            id: dall_e_image
+            size_hint_y: None
+            height: 255
+            width: 255
+        Label:
+            id: insult_label
+            text: ''
+            font_name: app.fonts['heading']
+            font_size: '24sp'
+            color: app.theme_colors['primary']
+            size_hint_y: None
+            height: 40
+        BoxLayout:
+            id: qr_button
+            orientation: 'vertical'
+            padding: app.theme_vars['padding']
+            spacing: app.theme_vars['spacing']
+            size_hint_y: None
+            height: 40
+
+<CameraScreen>:
+    FloatLayout:
+	#Label:
+            #text: 'Let me get a look at you.'
+            #font_name: app.fonts['heading']
+            #font_size: '24sp'
+            #color: app.theme_colors['primary']
+            #size_hint_y: None
+            #height: 40
+        Image:
+            id: captured_image
+            size_hint: None, None
+            size: 400, 300  # Adjust the size as needed
+            pos_hint: {'center_x': 0.5, 'center_y': 0.5}
