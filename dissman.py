@@ -38,7 +38,11 @@ except BadPinFactory:
 except Exception as e:
     print(f"GPIO init failed ({e}); coin input disabled.")
 
-p = Usb(0x0416, 0x5011, in_ep=0x81, out_ep=0x01, profile='POS-5890')
+try:
+    p = Usb(0x0416, 0x5011, in_ep=0x81, out_ep=0x01, profile='POS-5890')
+except Exception as e:
+    print(f"Printer init failed ({e}); printing disabled.")
+    p = None
 
 path = '/home/dissman/Documents/app/' # path to files 
 
@@ -298,15 +302,16 @@ class DisplayScreen(Screen):
 
         print("DEBUG: print_qr called")
 
+        if p is None:
+            print("DEBUG: print_qr called but printer is unavailable; skipping.")
+            return
 
-        p._raw(b'\x1b\x40')
-        p._raw(b'\x1b\x61\x01')  # ESC a 1 → center alignment
+        p._raw(b'\x1b\x40')   
         p.text("\n\n")
         p.text('link to code and\n')
         p.text(r'"artist" statement')
         p.text("\n\n")
-        p.image(path + "qrcode_scaled.png")
-        p._raw(b'\x1b\x61\x00')  # ESC a 0 → revert to left alignment
+        p.image(path+"qrcode_scaled.png")
         p.text("\n\n\n\n")
         p._raw(b'\x1b\x40')
 
