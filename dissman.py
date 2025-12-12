@@ -15,6 +15,7 @@ import random
 import io
 import threading
 from threading import Timer
+from threading import Thread
 import requests
 import time
 import os
@@ -27,6 +28,10 @@ from gpiozero.exc import BadPinFactory
 from escpos.printer import Usb
 from openai import OpenAI
 from pathlib import Path
+import pyttsx3
+from queue import Queue, Empty
+import subprocess
+import sys
 
 
 GPIO_PIN = 17
@@ -50,6 +55,52 @@ try:
 except Exception as e:
     print(f"Printer init failed ({e}); printing disabled.")
     p = None
+
+
+_tts_q = Queue()
+_tts_engine = None
+_tts_worker_started = False
+
+def _tts_worker():
+    global _tts_engine
+    _tts_engine = pyttsx3.init()
+    _tts_engine.setProperty("rate", 150)
+    _tts_engine.setProperty("volume", 1.0)
+
+    while True:
+        try:
+            text = _tts_q.get()
+            if text is None:
+                break
+            _tts_engine.say(text)
+            _tts_engine.runAndWait()
+        except Exception as e:
+            print(f"TTS error: {e}")
+
+def speak(text: str):
+    text = str(text)
+
+    if sys.platform.startswith("win"):
+        # Windows: use built-in System.Speech (reliable, repeatable)
+        safe = str(text).replace("'", "''")
+        ps = (
+            "Add-Type -AssemblyName System.Speech; "
+            "$speak = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+            f"$speak.Speak('{safe}');"
+        )
+        subprocess.Popen(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    else:
+        # Pi/Linux: espeak-ng (fast, offline)
+        subprocess.Popen(
+            ["espeak-ng", text],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
 
 Config.set('graphics', 'width', '800')
@@ -123,6 +174,7 @@ class InsultScreen(Screen):
             btn.bind(on_release=self.show_insult)
             self.ids.insult_options.add_widget(btn)
         self.ids.header.text = "What best describes you?"
+        speak("Which insult best describes you?")
 
     def show_insult(self, instance):
         article = "an" if instance.text[0] in 'aeiou' else "a"
@@ -149,6 +201,7 @@ class CameraScreen(Screen):
             color= [0,0,0]
             )
         self.add_widget(self.overlay_text)
+        speak("Let me get a good look at you")
 
                 
         # Start webcam preview
@@ -278,6 +331,7 @@ class DisplayScreen(Screen):
         self.ids.qr_button.clear_widgets()  # Clear existing buttons
         dall_e_image_path = self.ids.dall_e_image.source
         insult_text = self.ids.insult_label.text
+        speak(insult_text)
         self.print_image_and_text(dall_e_image_path, insult_text, p)
 
         self.ids.qr_button.size_hint = (1, None)
@@ -377,6 +431,7 @@ class SplashScreen(Screen):
         self.add_widget(self.image_widget)
         self.current_image = 1
         print("waiting for coin...")
+        speak("Insert coin for insult.")
         self.animation_event = Clock.schedule_interval(self.update_image, 0.75)  # Change image every 0.75 seconds
         
         if coin_acceptor is not None:
@@ -397,6 +452,7 @@ class SplashScreen(Screen):
     def stop_animation_and_schedule_switch(self, channel=None):
         self.animation_event.cancel()
         print("coin received!")
+        speak("Coin received. Generating insults.")
         Clock.schedule_once(lambda dt: self.switch_to_category_screen(), 0)
 
     @mainthread
