@@ -331,7 +331,7 @@ class DisplayScreen(Screen):
         self.ids.qr_button.clear_widgets()  # Clear existing buttons
         dall_e_image_path = self.ids.dall_e_image.source
         insult_text = self.ids.insult_label.text
-        speak(f"This what you look like {insult_text}")
+        speak(f"This is what you look like, {insult_text}")
         self.print_image_and_text(dall_e_image_path, insult_text, p)
 
         self.ids.qr_button.size_hint = (1, None)
