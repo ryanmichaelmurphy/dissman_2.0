@@ -26,11 +26,17 @@ from gpiozero.exc import BadPinFactory
 #from signal import pause
 from escpos.printer import Usb
 from openai import OpenAI
+from pathlib import Path
+
 
 GPIO_PIN = 17
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-path = '/home/dissman/Documents/app/'
 coin_acceptor = None
+
+# path to files 
+BASE_DIR = Path(__file__).resolve().parent
+Builder.load_file(str(BASE_DIR / "insultmaster3.kv"))
+path = str(BASE_DIR) + "/"
 
 try:
     coin_acceptor = GPIOButton(GPIO_PIN)
@@ -43,12 +49,8 @@ try:
     p = Usb(0x0416, 0x5011, in_ep=0x81, out_ep=0x01, profile='POS-5890')
 except Exception as e:
     print(f"Printer init failed ({e}); printing disabled.")
-    path = 'Desktop/dissman_2/dissman_2.0/'
     p = None
 
- # path to files 
-
-Builder.load_file(path + 'insultmaster3.kv')
 
 Config.set('graphics', 'width', '800')
 Config.set('graphics', 'height', '480')
@@ -392,7 +394,7 @@ class SplashScreen(Screen):
             self.image_widget.source = f'{path}insertcoin0.png'
             self.current_image = 1
 
-    def stop_animation_and_schedule_switch(self, channel):
+    def stop_animation_and_schedule_switch(self, channel=None):
         self.animation_event.cancel()
         print("coin received!")
         Clock.schedule_once(lambda dt: self.switch_to_category_screen(), 0)
