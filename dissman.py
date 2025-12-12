@@ -184,6 +184,7 @@ class InsultScreen(Screen):
 
 class CameraScreen(Screen):
     def on_enter(self):
+        speak("Let me get a good look at you")
         # Clear any previous image or terminal display
         os.system('clear')  # This clears the terminal screen
         self.setup_camera()
@@ -201,13 +202,12 @@ class CameraScreen(Screen):
             color= [0,0,0]
             )
         self.add_widget(self.overlay_text)
-        speak("Let me get a good look at you")
 
                 
         # Start webcam preview
         Clock.schedule_interval(self.update_preview, 1 / 30)  # ~30fps for smoother preview
         # Schedule taking the picture after 3 seconds
-        Clock.schedule_once(self.capture_image, 3)
+        Clock.schedule_once(self.capture_image, 4)
 
     def setup_camera(self):
         # Initialize the camera
@@ -331,7 +331,7 @@ class DisplayScreen(Screen):
         self.ids.qr_button.clear_widgets()  # Clear existing buttons
         dall_e_image_path = self.ids.dall_e_image.source
         insult_text = self.ids.insult_label.text
-        speak(insult_text)
+        speak(f"This what you look like {insult_text}")
         self.print_image_and_text(dall_e_image_path, insult_text, p)
 
         self.ids.qr_button.size_hint = (1, None)
@@ -437,9 +437,8 @@ class SplashScreen(Screen):
         if coin_acceptor is not None:
             coin_acceptor.when_activated = self.stop_animation_and_schedule_switch
         else:
-            # simulate coin insertion after 3 seconds on non-Pi systems
-            
-            Timer(3.0, self.stop_animation_and_schedule_switch).start()
+            # simulate coin insertion after 5 seconds on non-Pi systems
+            Timer(5.0, self.stop_animation_and_schedule_switch).start()
 
     def update_image(self, dt):
         if self.current_image == 1:
@@ -452,7 +451,7 @@ class SplashScreen(Screen):
     def stop_animation_and_schedule_switch(self, channel=None):
         self.animation_event.cancel()
         print("coin received!")
-        speak("Coin received. Generating insults.")
+        speak("Coin received. Choose your degradation.")
         Clock.schedule_once(lambda dt: self.switch_to_category_screen(), 0)
 
     @mainthread
