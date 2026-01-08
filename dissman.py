@@ -32,13 +32,15 @@ import pyttsx3
 from queue import Queue, Empty
 import subprocess
 import sys
+from dotenv import load_dotenv
 
+load_dotenv()
 
 GPIO_PIN = 17
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 coin_acceptor = None
 
-# path to files 
+# path to files
 BASE_DIR = Path(__file__).resolve().parent
 Builder.load_file(str(BASE_DIR / "insultmaster3.kv"))
 path = str(BASE_DIR) + "/"
@@ -93,6 +95,13 @@ def speak(text: str):
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    elif sys.platform == "darwin":
+        # macOS: use built-in 'say' command
+        subprocess.Popen(
+            ["say", text],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
     else:
         # Pi/Linux: espeak-ng (fast, offline)
@@ -179,7 +188,7 @@ class InsultScreen(Screen):
     def show_insult(self, instance):
         article = "an" if instance.text[0] in 'aeiou' else "a"
         self.manager.transition.direction = 'left'
-        self.manager.current = 'camera' 
+        self.manager.current = 'camera'
         self.manager.get_screen('display').ids.insult_label.text = f"you {instance.text}."
 
 class CameraScreen(Screen):
@@ -190,7 +199,7 @@ class CameraScreen(Screen):
         self.setup_camera()
         self.img1 = Image()
         self.add_widget(self.img1)
-        
+
         # Add overlay text
         self.overlay_text = Label(
             text="Let me get a good look at you",
@@ -203,7 +212,7 @@ class CameraScreen(Screen):
             )
         self.add_widget(self.overlay_text)
 
-                
+
         # Start webcam preview
         Clock.schedule_interval(self.update_preview, 1 / 30)  # ~30fps for smoother preview
         # Schedule taking the picture after 3 seconds
@@ -237,7 +246,7 @@ class CameraScreen(Screen):
         if ret:
             timestamp = str(int(time.time()))
             save_path = path + 'test_' + timestamp + '.png'
-            cv2.imwrite(save_path, frame) 
+            cv2.imwrite(save_path, frame)
 
             # Store the save_path in the App class
             App.get_running_app().last_image_path = save_path
@@ -284,7 +293,7 @@ class LoadScreen(Screen):
             response_dict = response.to_dict()
             new_image_url = response_dict['data'][0]['url']
             image_response = requests.get(new_image_url)
-            
+
             if image_response.status_code == 200:
                 with open(self.image_path, 'wb') as file:
                     file.write(image_response.content)
@@ -309,10 +318,10 @@ class LoadScreen(Screen):
         base_path = f'{path}thinking'
         num_images = 16
         images = [f'{base_path}{i}.png' for i in range(num_images)]
-        
+
         self.current_image = (self.current_image + 1) % len(images)
         self.image_widget.source = images[self.current_image]
-        
+
         if self.image_ready and self.old_image_url:  # Check if the image is ready and URL has changed
             self.manager.get_screen('display').ids.dall_e_image.source = self.image_path
             self.manager.current = 'display'
@@ -321,7 +330,7 @@ class LoadScreen(Screen):
 
 class DisplayScreen(Screen):
     has_entered = False
-    
+
     def on_enter(self, *args):
         if getattr(self, "has_entered", False):
             return
@@ -331,7 +340,23 @@ class DisplayScreen(Screen):
         self.ids.qr_button.clear_widgets()  # Clear existing buttons
         dall_e_image_path = self.ids.dall_e_image.source
         insult_text = self.ids.insult_label.text
-        speak(f"This is what you look like, {insult_text}")
+        # insult_text format is "you [adj] [noun]."
+        parts = insult_text.split(' ')
+        
+        # Schedule the speech with explicit delays for dramatic effect
+        speak("This is what you look like.")
+        
+        # "you" after 2 seconds
+        Clock.schedule_once(lambda dt: speak(parts[0]), 2.0)
+        
+        # [adj] after 3.2 seconds
+        if len(parts) > 1:
+            Clock.schedule_once(lambda dt: speak(parts[1]), 3.2)
+            
+        # [noun] after 4.7 seconds
+        if len(parts) > 2:
+            Clock.schedule_once(lambda dt: speak(parts[2]), 4.7)
+
         self.print_image_and_text(dall_e_image_path, insult_text, p)
 
         self.ids.qr_button.size_hint = (1, None)
@@ -364,7 +389,7 @@ class DisplayScreen(Screen):
             print("DEBUG: print_qr called but printer is unavailable; skipping.")
             return
 
-        p._raw(b'\x1b\x40')   
+        p._raw(b'\x1b\x40')
         p.text("\n\n")
         p.text('link to code and\n')
         p.text(r'"artist" statement')
@@ -384,8 +409,8 @@ class DisplayScreen(Screen):
 
         # Decrease the contrast of the image
         enhancer = ImageEnhance.Contrast(image)
-        image = enhancer.enhance(0.3)  
- 
+        image = enhancer.enhance(0.3)
+
         # Save the processed image to a temporary path
         timestamp = str(int(time.time()))
         temp_image_path = path + "downloaded_image_"+ timestamp +".jpg"
@@ -397,9 +422,9 @@ class DisplayScreen(Screen):
             p.text("\n\n\n")
             p.text("This is what you look like...\n")
             p.text("\n")
-            
+
             p.image(temp_image_path)
-            
+
             p.text("\n\n")
             p.text(text)
             p.text("\n\n\n\n")
@@ -427,18 +452,66 @@ class CategoryScreen(Screen):
 
 class SplashScreen(Screen):
     def on_enter(self, *args):
+        # Cancel existing events if any to prevent stacking
+        if hasattr(self, 'animation_event'):
+            self.animation_event.cancel()
+        if hasattr(self, 'insult_event'):
+            self.insult_event.cancel()
+
         self.image_widget = Image(source=f'{path}insertcoin0.png')
         self.add_widget(self.image_widget)
         self.current_image = 1
         print("waiting for coin...")
         speak("Insert coin for insult.")
+
+        self.insult_list = [
+            "You suck",
+            "Give me a quarter dork",
+            "I can smell your balls from here",
+            "You're a disgrace",
+            "Who let you in?",
+            # "What ya looking at?",
+            "You call that a haircut?",
+            # "Who let a clown in?",
+            # "Did you get dressed in the dark?",
+            "That look isn’t working",
+            "You’re trying way too hard",
+            # "Ever heard of confidence?",
+            # "Yikes, rough day?",
+            # "That’s… unfortunate",
+            "You call that style?",
+            "You look like a before picture",
+            # "You look like you lost a fight with a lawnmower",
+            # "You're the reason God created the middle finger",
+            # "You're as useless as a screen door on a submarine",
+            "You're like a software update: whenever I see you, I think, 'Not now.'"
+            ""
+
+        ]
+        self.current_insults = list(self.insult_list)
+        random.shuffle(self.current_insults)
+        self.last_insult = None
+
         self.animation_event = Clock.schedule_interval(self.update_image, 0.75)  # Change image every 0.75 seconds
-        
+        self.insult_event = Clock.schedule_interval(self.speak_random_insult, 30) # Speak random insult every 30 seconds
+
         if coin_acceptor is not None:
             coin_acceptor.when_activated = self.stop_animation_and_schedule_switch
         else:
             # simulate coin insertion after 5 seconds on non-Pi systems
             Timer(5.0, self.stop_animation_and_schedule_switch).start()
+
+    def speak_random_insult(self, dt):
+        if not self.current_insults:
+            self.current_insults = list(self.insult_list)
+            random.shuffle(self.current_insults)
+            # If the next insult (last in list due to pop()) is the same as the previous one, swap it
+            if self.current_insults[-1] == self.last_insult and len(self.current_insults) > 1:
+                self.current_insults[-1], self.current_insults[0] = self.current_insults[0], self.current_insults[-1]
+
+        insult = self.current_insults.pop()
+        self.last_insult = insult
+        speak(insult)
 
     def update_image(self, dt):
         if self.current_image == 1:
@@ -450,6 +523,8 @@ class SplashScreen(Screen):
 
     def stop_animation_and_schedule_switch(self, channel=None):
         self.animation_event.cancel()
+        if hasattr(self, 'insult_event'):
+            self.insult_event.cancel()
         print("coin received!")
         speak("Coin received. Choose your degradation.")
         Clock.schedule_once(lambda dt: self.switch_to_category_screen(), 0)
@@ -457,7 +532,6 @@ class SplashScreen(Screen):
     @mainthread
     def switch_to_category_screen(self):
         App.get_running_app().sm.current = 'category'
-
 class InsultMasterApp(App):
     def build(self):
         self.theme_colors = {
@@ -475,7 +549,7 @@ class InsultMasterApp(App):
             'body': 'FreeMono',
             'button': 'FreeMono'
         }
-        
+
         self.sm = ScreenManager(transition=NoTransition())
         self.sm.add_widget(SplashScreen(name='splash'))
         self.sm.add_widget(CategoryScreen(name='category'))
@@ -485,10 +559,10 @@ class InsultMasterApp(App):
         self.sm.add_widget(DisplayScreen(name='display'))
 
         return self.sm
-    
+
     def go_to_category_screen(self, *args):
         self.sm.current = 'category'
-        
+
     def on_start(self):
         super(InsultMasterApp, self).on_start()
         self.populate_category_buttons()
@@ -500,7 +574,7 @@ class InsultMasterApp(App):
             height=40)
             btn.bind(on_release=lambda instance, c=category: category_screen.select_category(c))
             category_screen.ids.categories.add_widget(btn)
-        
+
     def on_stop(self):
         # Clean up GPIO so the pin isn't "busy" on the next run
         if coin_acceptor is not None:
