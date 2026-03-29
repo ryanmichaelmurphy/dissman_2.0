@@ -287,7 +287,7 @@ class LoadScreen(Screen):
                 response = client.images.edit(
                     model="gpt-image-1",
                     image=image_file,
-                    prompt="Draw this person as a crude middle school notebook doodle. Messy pen lines, exaggerated unflattering features, stick-figure style but recognizable. Make them uglier than they actually are with a big nose, crooked teeth, and beady eyes.",
+                    prompt="You are a middle school bully. Draw this person as a crude middle school notebook doodle. Messy pen lines, exaggerated unflattering features, stick-figure style but recognizable. Make them uglier than they actually are with a stupid facial expression.",
                     n=1,
                     size="1024x1024"
                 )
