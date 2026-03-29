@@ -12,6 +12,7 @@ from kivy.graphics import Color, Line
 from kivy.graphics.texture import Texture
 from kivy.clock import mainthread
 import random
+import base64
 import io
 import threading
 from threading import Timer
@@ -283,24 +284,19 @@ class LoadScreen(Screen):
             last_image_path = App.get_running_app().last_image_path
 
             with open(last_image_path, "rb") as image_file:
-                response = client.images.create_variation(
-                    model="dall-e-2",
+                response = client.images.edit(
+                    model="gpt-image-1",
                     image=image_file,
+                    prompt="Draw this person as a crude middle school notebook doodle. Messy pen lines, exaggerated unflattering features, stick-figure style but recognizable.",
                     n=1,
                     size="1024x1024"
                 )
 
-            response_dict = response.to_dict()
-            new_image_url = response_dict['data'][0]['url']
-            image_response = requests.get(new_image_url)
-
-            if image_response.status_code == 200:
-                with open(self.image_path, 'wb') as file:
-                    file.write(image_response.content)
-                self.image_ready = True  # Update image readiness
-                self.old_image_url = new_image_url  # Update the old image URL
-            else:
-                print(f"Error: Received status code {image_response.status_code} from image request.")
+            image_data = base64.b64decode(response.data[0].b64_json)
+            with open(self.image_path, 'wb') as file:
+                file.write(image_data)
+            self.image_ready = True
+            self.old_image_url = "generated"
         except requests.RequestException as e:
             print(f"Error: Failed to fetch the image from the URL. {e}")
             Clock.schedule_once(
@@ -342,17 +338,17 @@ class DisplayScreen(Screen):
         insult_text = self.ids.insult_label.text
         # insult_text format is "you [adj] [noun]."
         parts = insult_text.split(' ')
-        
+
         # Schedule the speech with explicit delays for dramatic effect
         speak("This is what you look like.")
-        
+
         # "you" after 2 seconds
         Clock.schedule_once(lambda dt: speak(parts[0]), 2.0)
-        
+
         # [adj] after 3.2 seconds
         if len(parts) > 1:
             Clock.schedule_once(lambda dt: speak(parts[1]), 3.2)
-            
+
         # [noun] after 4.7 seconds
         if len(parts) > 2:
             Clock.schedule_once(lambda dt: speak(parts[2]), 4.7)
@@ -474,11 +470,11 @@ class SplashScreen(Screen):
             "You call that a haircut?",
             # "Who let a clown in?",
             # "Did you get dressed in the dark?",
-            "That look isn’t working",
-            "You’re trying way too hard",
+            "That look isn't working",
+            "You're trying way too hard",
             # "Ever heard of confidence?",
             # "Yikes, rough day?",
-            # "That’s… unfortunate",
+            # "That's… unfortunate",
             "You call that style?",
             "You look like a before picture",
             # "You look like you lost a fight with a lawnmower",
@@ -493,13 +489,21 @@ class SplashScreen(Screen):
         self.last_insult = None
 
         self.animation_event = Clock.schedule_interval(self.update_image, 0.75)  # Change image every 0.75 seconds
-        self.insult_event = Clock.schedule_interval(self.speak_random_insult, 30) # Speak random insult every 30 seconds
+        self.schedule_next_insult()
 
         if coin_acceptor is not None:
             coin_acceptor.when_activated = self.stop_animation_and_schedule_switch
         else:
             # simulate coin insertion after 5 seconds on non-Pi systems
             Timer(5.0, self.stop_animation_and_schedule_switch).start()
+
+    def schedule_next_insult(self):
+        now = time.localtime()
+        mins_past = now.tm_min % 30
+        secs_until = (30 - mins_past) * 60 - now.tm_sec
+        if secs_until <= 0:
+            secs_until = 1800
+        self.insult_event = Clock.schedule_once(self.speak_random_insult, secs_until)
 
     def speak_random_insult(self, dt):
         if not self.current_insults:
@@ -512,6 +516,7 @@ class SplashScreen(Screen):
         insult = self.current_insults.pop()
         self.last_insult = insult
         speak(insult)
+        self.schedule_next_insult()
 
     def update_image(self, dt):
         if self.current_image == 1:
