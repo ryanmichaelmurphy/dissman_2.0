@@ -591,7 +591,4 @@ class InsultMasterApp(App):
 
 
 if __name__ == '__main__':
-    speak("Boot test phrase one")
-    speak("Boot test phrase two")
-    speak("Boot test phrase three")
     InsultMasterApp().run()
