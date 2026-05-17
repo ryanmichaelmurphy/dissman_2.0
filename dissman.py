@@ -197,27 +197,27 @@ class CameraScreen(Screen):
         speak("Let me get a good look at you")
         # Clear any previous image or terminal display
         os.system('clear')  # This clears the terminal screen
+        self.ids.captured_image.source = ''
         self.setup_camera()
-        self.img1 = Image()
-        self.add_widget(self.img1)
 
-        # Add overlay text
-        self.overlay_text = Label(
-            text="Let me get a good look at you",
-            size_hint=(None, None),
-            size=(400, 50),  # Adjust size as needed
-            pos_hint={'center_x': 0.5, 'top': 1},
-            font_name='FreeMono',  # Change to desired font
-            font_size='24sp',    # Change to desired font size
-            color= [0,0,0]
+        if not hasattr(self, 'img1'):
+            self.img1 = Image()
+            self.add_widget(self.img1)
+
+            self.overlay_text = Label(
+                text="Let me get a good look at you",
+                size_hint=(None, None),
+                size=(400, 50),
+                pos_hint={'center_x': 0.5, 'top': 1},
+                font_name='FreeMono',
+                font_size='24sp',
+                color=[0, 0, 0]
             )
-        self.add_widget(self.overlay_text)
-
+            self.add_widget(self.overlay_text)
 
         # Start webcam preview
         Clock.schedule_interval(self.update_preview, 1 / 30)  # ~30fps for smoother preview
-        # Schedule taking the picture after 3 seconds
-        Clock.schedule_once(self.capture_image, 4)
+        Clock.schedule_once(self.capture_image, 7)
 
     def setup_camera(self):
         # Initialize the camera
@@ -591,4 +591,7 @@ class InsultMasterApp(App):
 
 
 if __name__ == '__main__':
+    speak("Boot test phrase one")
+    speak("Boot test phrase two")
+    speak("Boot test phrase three")
     InsultMasterApp().run()
