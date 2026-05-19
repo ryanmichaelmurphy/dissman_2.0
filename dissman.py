@@ -6,6 +6,7 @@ from kivy.uix.screenmanager import ScreenManager, Screen, NoTransition
 from kivy.clock import Clock
 from kivy.config import Config
 from kivy.uix.image import Image
+from kivy.uix.vkeyboard import VKeyboard
 from kivy.core.image import Image as CoreImage
 from kivy.lang import Builder
 from kivy.graphics import Color, Line
@@ -34,6 +35,7 @@ from queue import Queue, Empty
 import subprocess
 import sys
 from dotenv import load_dotenv
+import github_sync
 
 load_dotenv()
 
@@ -113,43 +115,71 @@ def speak(text: str):
         )
 
 
+class ImageJob:
+    """Holds state for the in-flight or completed image generation."""
+
+    def __init__(self):
+        self.image_path = None
+        self.ready = False
+        self.error = False
+
+    def reset(self):
+        self.image_path = None
+        self.ready = False
+        self.error = False
+
+
+def start_image_generation(source_image_path, job, out_path):
+    """Fire the GPT image edit in a background thread. Updates `job` in place."""
+    job.reset()
+
+    def _work():
+        try:
+            with open(source_image_path, "rb") as f:
+                response = client.images.edit(
+                    model="gpt-image-1",
+                    image=f,
+                    prompt=(
+                        "You are a middle school bully. Draw this person as a crude "
+                        "middle school notebook doodle. Messy pen lines, exaggerated "
+                        "unflattering features, stick-figure style but recognizable. "
+                        "Make them uglier than they actually are with a stupid facial "
+                        "expression."
+                    ),
+                    n=1,
+                    size="1024x1024",
+                )
+            data = base64.b64decode(response.data[0].b64_json)
+            with open(out_path, "wb") as f:
+                f.write(data)
+            job.image_path = out_path
+            job.ready = True
+        except Exception as e:
+            print(f"[image-gen] failed: {e}")
+            job.error = True
+
+    t = threading.Thread(target=_work, daemon=True)
+    t.start()
+    return t
+
+
 Config.set('graphics', 'width', '800')
 Config.set('graphics', 'height', '480')
 Config.set('graphics', 'borderless', '1')
 Config.set('graphics', 'fullscreen', '1')
 
-# G-rated adjectives and nouns
-g_adj = "clumsy scatterbrained grumpy sloppy cranky loony cheeky stubborn sneaky rascally mopey shifty snarky pouty grungy fussy sassy zonked knobby topsy-turvy clumsy scatterbrained grumpy sloppy cranky loony cheeky stubborn sneaky rascally mopey shifty snarky pouty grungy fussy sassy zonked knobby topsy-turvy"
-g_nouns = "doodle hamburger backpack bedding bedspread binder blanket blinds bookcase book broom brush bucket calendar angler toad horse candle carpet chair china clock coffee-table comb comforter computer container couch credenza curtain cushion heater houseplant magnet mop radiator radio refrigerator rug saucer saw scissors screwdriver settee shade sheet shelf shirt shoe smoke-detector sneaker socks sofa speaker toy tool tv toothpaste towel nutcase toaster pancake muffin wombat caboose goblin pirate ninja meatball cupcake tadpole dingbat noodle turnip alien gadget grasshopper pickle wigwam bonnethead sharksucker"
+from insult_store import InsultStore, CATEGORY_LABELS
 
-# R-rated adjectives and nouns (sensitive content redacted)
-r_adj = "shitty great-value pick-me horsefaced cum-guzzling christian vaginal straight cum semen smegma discharge fallopian anal aggressive arrogant boastful bossy boring careless clingy cruel cowardly deceitful dishonest greedy harsh impatient impulsive jealous moody narrow-minded overcritical rude selfish untrustworthy unhappy cumguzzling unfuckable incestuous sick perverted deranged depraved mountain-dew-drinking butterfaced self-centered revolting repellent repulsive sickening nauseating nauseous stomach-churning stomach-turning off-putting unpalatable unappetizing uninviting unsavoury distasteful foul nasty obnoxious odious"
-r_nouns = "eunuch no-dick cum-for-brains toesniffer dicksucker dicksniffer toesucker simp skidmark shit-stain anal-fissure anal-wart anal-cyst vaginal-cyst vaginal-discharge smegma foreskin dick-cheese cumguzzler yuppy hippy karen boomer dork nerd dweeb unfuckable pedophile butterface needledick incel neckbeard wart genital-wart homewrecker doof douche doucheholster douchebag cum-receptacle cum-dumpster cumrag cumslut bum degenerate derelict good-for-nothing no-account no-good slacker hetrosexual buttlover breitbart-reader andriod-user trump-lover republican cumslut buttmuncher nutsack ballsack boner christian penis cunt twat asshole fucker shitbag shit-for-brains cumrag gland intestine cecum colon rectum liver gallbladder mesentery pancreas anus kidney ureter bladder urethra ovary tube uterus cervix discharge vagina"
+INSULT_STORE = InsultStore(BASE_DIR / "insults")
 
-# Old-timey adjectives and nouns
-old_adj = "froward pernickety laggardly moonstruck mumpsimus spleeny fribble dandiprat rattlecap slugabed cacafuego raggabrash dithering muddle-headed tatterdemalion claptrap wifty bedswerver lackadaisical flapdoodle"
-old_nouns = "scallywag naysayer neerdowell landlover fustilarian snollygoster popinjay lickspittle rakefire whippersnapper noodle mumblecrust zounderkite gillywetfoot doodle pettifogger fopdoodle mooncalf clodpole hugger-mugger ragamuffin scalawag ninnyhammer flapdragon"
-
-# Combine to make an all list
-all_adj = g_adj + r_adj + old_adj
-all_nouns = g_nouns + r_nouns + old_nouns
-
-# Convert to lists
-g_adj_list = g_adj.split(" ")
-g_noun_list = g_nouns.split(" ")
-r_adj_list = r_adj.split(" ")
-r_noun_list = r_nouns.split(" ")
-old_adj_list = old_adj.split(" ")
-old_noun_list = old_nouns.split(" ")
-all_adj_list = all_adj.split(" ")
-all_noun_list = all_nouns.split(" ")
-
-categories = {
-    "G-rated": (g_adj_list, g_noun_list),
-    "R-rated": (r_adj_list, r_noun_list),
-    "Old-timey": (old_adj_list, old_noun_list),
-    "Anything Goes": (all_adj_list, all_noun_list),
-}
+# Category codes used internally: 'g', 'r', 'old', 'all'.
+# Display labels come from CATEGORY_LABELS; 'all' is "Anything Goes".
+CATEGORY_DISPLAY = [
+    ("g", "G-rated"),
+    ("r", "R-rated"),
+    ("old", "Old-timey"),
+    ("all", "Anything Goes"),
+]
 
 class ThemedButton(Button):
     def __init__(self, **kwargs):
@@ -171,14 +201,20 @@ class ThemedButton(Button):
         self.border_line.rectangle = (self.x, self.y, self.width, self.height)
 
 class InsultScreen(Screen):
-    def generate_insults(self, adj_list, noun_list):
-        return [f"{random.choice(adj_list)} {random.choice(noun_list)}" for _ in range(3)]
+    def generate_insults(self, category: str) -> list[str]:
+        adj_list = INSULT_STORE.adjectives(category)
+        noun_list = INSULT_STORE.nouns(category)
+        if not adj_list or not noun_list:
+            return []
+        return [
+            f"{random.choice(adj_list)} {random.choice(noun_list)}"
+            for _ in range(3)
+        ]
 
     def on_enter(self, *args):
-        self.ids.insult_options.clear_widgets()  # Clear existing buttons
+        self.ids.insult_options.clear_widgets()
         category = self.manager.current_category
-        adj_list, noun_list = categories[category]
-        insults = self.generate_insults(adj_list, noun_list)
+        insults = self.generate_insults(category)
         for insult in insults:
             btn = ThemedButton(text=insult, size_hint_y=None, height=40)
             btn.bind(on_release=self.show_insult)
@@ -187,10 +223,14 @@ class InsultScreen(Screen):
         speak("Which insult best describes you?")
 
     def show_insult(self, instance):
-        article = "an" if instance.text[0] in 'aeiou' else "a"
-        self.manager.transition.direction = 'left'
-        self.manager.current = 'camera'
         self.manager.get_screen('display').ids.insult_label.text = f"you {instance.text}."
+        self.manager.transition.direction = 'left'
+        app = App.get_running_app()
+        if app.image_job.ready:
+            self.manager.get_screen('display').ids.dall_e_image.source = app.image_job.image_path
+            self.manager.current = 'display'
+        else:
+            self.manager.current = 'load'
 
 class CameraScreen(Screen):
     def on_enter(self):
@@ -241,88 +281,54 @@ class CameraScreen(Screen):
         self.img1.texture = texture
 
     def capture_image(self, dt):
-        # Ensure a frame is available
         ret, frame = self.camera.read()
         frame = cv2.convertScaleAbs(frame, alpha=1.0, beta=50)
-        if ret:
-            timestamp = str(int(time.time()))
-            save_path = path + 'test_' + timestamp + '.png'
-            cv2.imwrite(save_path, frame)
+        if not ret:
+            return
 
-            # Store the save_path in the App class
-            App.get_running_app().last_image_path = save_path
+        timestamp = str(int(time.time()))
+        save_path = path + 'test_' + timestamp + '.png'
+        cv2.imwrite(save_path, frame)
+        App.get_running_app().last_image_path = save_path
+        self.ids.captured_image.source = save_path
 
-            # Update the image on the screen
-            self.ids.captured_image.source = save_path
+        Clock.unschedule(self.update_preview)
+        if self.camera.isOpened():
+            self.camera.release()
 
-            # Stop the preview process and release the camera
-            Clock.unschedule(self.update_preview)
-            if self.camera.isOpened():
-                self.camera.release()
+        app = App.get_running_app()
+        out_path = f'{path}downloaded_image_{timestamp}.png'
+        start_image_generation(save_path, app.image_job, out_path)
 
-            # Schedule showing the loading screen after 2 seconds
-            Clock.schedule_once(self.show_loading_screen, 2)
+        Clock.schedule_once(self.go_to_insult, 1.5)
 
-    def show_loading_screen(self, dt):
-        self.manager.current = 'load'
+    def go_to_insult(self, dt):
+        self.manager.transition.direction = 'left'
+        self.manager.current = 'insult'
 
 class LoadScreen(Screen):
     def on_enter(self, *args):
-        self.timestamp = str(int(time.time()))  # Get current timestamp
-        self.image_path = f'{path}downloaded_image_{self.timestamp}.png'  # Class attribute
-        self.image_ready = False
-        self.old_image_url = None
-        self.image_widget = Image(source=f'{path}thinking0.png')
-        self.add_widget(self.image_widget)
+        if not hasattr(self, "image_widget"):
+            self.image_widget = Image(source=f'{path}thinking0.png')
+            self.add_widget(self.image_widget)
         self.current_image = 1
-        threading.Thread(target=self.fetch_image).start()
+        speak("Thinking bad thoughts about you.")
         Clock.schedule_interval(self.check_image_ready, 0.3)
 
-    def fetch_image(self):
-        try:
-            # Get the last image path from the App class
-            last_image_path = App.get_running_app().last_image_path
-
-            with open(last_image_path, "rb") as image_file:
-                response = client.images.edit(
-                    model="gpt-image-1",
-                    image=image_file,
-                    prompt="You are a middle school bully. Draw this person as a crude middle school notebook doodle. Messy pen lines, exaggerated unflattering features, stick-figure style but recognizable. Make them uglier than they actually are with a stupid facial expression.",
-                    n=1,
-                    size="1024x1024"
-                )
-
-            image_data = base64.b64decode(response.data[0].b64_json)
-            with open(self.image_path, 'wb') as file:
-                file.write(image_data)
-            self.image_ready = True
-            self.old_image_url = "generated"
-        except requests.RequestException as e:
-            print(f"Error: Failed to fetch the image from the URL. {e}")
-            Clock.schedule_once(
-                lambda dt: setattr(self.manager, "current", "splash"),
-                0,
-            )
-        except Exception as e:
-            print(f"An unexpected error occurred: {e}")
-            Clock.schedule_once(
-                lambda dt: setattr(self.manager, "current", "splash"),
-                0,
-            )
-
     def check_image_ready(self, dt):
-        base_path = f'{path}thinking'
+        app = App.get_running_app()
+        if app.image_job.error:
+            self.manager.current = 'splash'
+            return False
+
         num_images = 16
-        images = [f'{base_path}{i}.png' for i in range(num_images)]
+        self.current_image = (self.current_image + 1) % num_images
+        self.image_widget.source = f'{path}thinking{self.current_image}.png'
 
-        self.current_image = (self.current_image + 1) % len(images)
-        self.image_widget.source = images[self.current_image]
-
-        if self.image_ready and self.old_image_url:  # Check if the image is ready and URL has changed
-            self.manager.get_screen('display').ids.dall_e_image.source = self.image_path
+        if app.image_job.ready:
+            self.manager.get_screen('display').ids.dall_e_image.source = app.image_job.image_path
             self.manager.current = 'display'
-            self.image_ready = False  # Reset the image readiness
-            return False  # Unschedule the interval if image is ready
+            return False
 
 class DisplayScreen(Screen):
     has_entered = False
@@ -334,6 +340,13 @@ class DisplayScreen(Screen):
 
         # Add functionality to print image and insult text
         self.ids.qr_button.clear_widgets()  # Clear existing buttons
+        self.ids.teach_button.clear_widgets()
+        teach_btn = ThemedButton(
+            text="Insult Dissman to teach him new insults",
+            size_hint_y=None, height=40,
+        )
+        teach_btn.bind(on_release=lambda x: self.go_to_teach())
+        self.ids.teach_button.add_widget(teach_btn)
         dall_e_image_path = self.ids.dall_e_image.source
         insult_text = self.ids.insult_label.text
         # insult_text format is "you [adj] [noun]."
@@ -362,12 +375,20 @@ class DisplayScreen(Screen):
         self.ids.qr_button.add_widget(qr_button)
 
         # Schedule transition to the splash screen after 10 seconds
-        Clock.schedule_once(lambda x: self.cleanup_and_restart(), 10)
+        self._return_event = Clock.schedule_once(lambda x: self.cleanup_and_restart(), 10)
 
     def cleanup_and_restart(self):
         self.has_entered = False
         self.p = None  # Release the printer by removing the reference
         self.manager.current = 'splash'
+
+    def go_to_teach(self):
+        # Cancel the auto-return-to-splash timer; teach flow owns the return.
+        if getattr(self, "_return_event", None):
+            self._return_event.cancel()
+        self.has_entered = False
+        self.manager.transition.direction = 'left'
+        self.manager.current = 'teach_category'
 
     def print_qr(self, p):
         # --- debounce so we don't print twice on a double-trigger ---
@@ -440,11 +461,117 @@ class DisplayScreen(Screen):
                     except Exception as e:
                         print(f"Error deleting file {file_path}: {e}")
 
-class CategoryScreen(Screen):
-    def select_category(self, category):
-        self.manager.current_category = category
+class TeachWordScreen(Screen):
+    prompt = ""
+    next_screen = ""
+    pos_key = ""
+
+    def on_enter(self, *args):
+        self.ids.prompt_label.text = self.prompt
+        self.ids.word_input.text = ""
+        speak(self.prompt)
+
+        self.ids.keyboard_holder.clear_widgets()
+        kb = VKeyboard(layout='qwerty', size_hint=(1, 1))
+        kb.bind(on_key_up=self._on_key)
+        self.ids.keyboard_holder.add_widget(kb)
+
+        self.ids.action_row.clear_widgets()
+        cancel = ThemedButton(text="Cancel")
+        cancel.bind(on_release=lambda x: self.cancel())
+        submit = ThemedButton(text="Submit")
+        submit.bind(on_release=lambda x: self.submit())
+        self.ids.action_row.add_widget(cancel)
+        self.ids.action_row.add_widget(submit)
+
+    def _on_key(self, keyboard, key, *args):
+        display, key_code, special, ascii_code = key
+        current = self.ids.word_input.text
+        if special == 'backspace':
+            self.ids.word_input.text = current[:-1]
+        elif special == 'enter':
+            self.submit()
+        elif special == 'spacebar':
+            self.ids.word_input.text = current + ' '
+        elif display and len(display) == 1:
+            self.ids.word_input.text = current + display
+
+    def submit(self):
+        word = self.ids.word_input.text.strip().lower()
+        if not word:
+            speak("Type something first.")
+            return
+        app = App.get_running_app()
+        app.teach_submission[self.pos_key] = word
         self.manager.transition.direction = 'left'
-        self.manager.current = 'insult'
+        self.manager.current = self.next_screen
+
+    def cancel(self):
+        App.get_running_app().teach_submission = {}
+        self.manager.transition.direction = 'right'
+        self.manager.current = 'splash'
+
+
+class TeachAdjScreen(TeachWordScreen):
+    prompt = "Type the adjective"
+    pos_key = "adj"
+    next_screen = "teach_noun"
+
+
+class TeachNounScreen(TeachWordScreen):
+    prompt = "Type the noun"
+    pos_key = "noun"
+    next_screen = "teach_submit"
+
+
+class TeachSubmitScreen(Screen):
+    def on_enter(self, *args):
+        app = App.get_running_app()
+        sub = app.teach_submission
+        category = sub.get("category")
+        adj = sub.get("adj")
+        noun = sub.get("noun")
+        app.teach_submission = {}
+
+        try:
+            INSULT_STORE.record_submission(category, "adj", adj)
+            INSULT_STORE.record_submission(category, "noun", noun)
+        except (ValueError, TypeError) as e:
+            print(f"[teach] rejected: {e}")
+            speak("That didn't work. Try again later.")
+            Clock.schedule_once(lambda dt: self._go_home(), 2)
+            return
+
+        msg = f"submission: {category}/{adj} {noun}"
+        github_sync.push_submission_async(repo_dir=BASE_DIR, message=msg)
+
+        speak(f"Thanks. I will remember: {adj} {noun}.")
+        Clock.schedule_once(lambda dt: self._go_home(), 3)
+
+    def _go_home(self):
+        self.manager.transition.direction = 'right'
+        self.manager.current = 'splash'
+
+
+class TeachCategoryScreen(Screen):
+    def on_enter(self, *args):
+        self.ids.teach_categories.clear_widgets()
+        speak("Pick a category for your insult.")
+        for code, label in [("g", "G-rated"), ("r", "R-rated"), ("old", "Old-timey")]:
+            btn = ThemedButton(text=label, size_hint_y=None, height=50)
+            btn.bind(on_release=lambda inst, c=code: self.select(c))
+            self.ids.teach_categories.add_widget(btn)
+
+    def select(self, category_code):
+        App.get_running_app().teach_submission = {"category": category_code}
+        self.manager.transition.direction = 'left'
+        self.manager.current = 'teach_adj'
+
+class CategoryScreen(Screen):
+    def select_category(self, category_code: str):
+        self.manager.current_category = category_code
+        self.manager.transition.direction = 'left'
+        self.manager.current = 'camera'
 
 class SplashScreen(Screen):
     def on_enter(self, *args):
@@ -556,12 +683,18 @@ class InsultMasterApp(App):
         }
 
         self.sm = ScreenManager(transition=NoTransition())
+        self.teach_submission = {}
+        self.image_job = ImageJob()
         self.sm.add_widget(SplashScreen(name='splash'))
         self.sm.add_widget(CategoryScreen(name='category'))
         self.sm.add_widget(InsultScreen(name='insult'))
         self.sm.add_widget(CameraScreen(name='camera'))
         self.sm.add_widget(LoadScreen(name='load'))
         self.sm.add_widget(DisplayScreen(name='display'))
+        self.sm.add_widget(TeachCategoryScreen(name='teach_category'))
+        self.sm.add_widget(TeachAdjScreen(name='teach_adj'))
+        self.sm.add_widget(TeachNounScreen(name='teach_noun'))
+        self.sm.add_widget(TeachSubmitScreen(name='teach_submit'))
 
         return self.sm
 
@@ -574,10 +707,9 @@ class InsultMasterApp(App):
 
     def populate_category_buttons(self, *args):
         category_screen = self.sm.get_screen('category')
-        for category in categories.keys():
-            btn = ThemedButton(text=category, size_hint_y=None,
-            height=40)
-            btn.bind(on_release=lambda instance, c=category: category_screen.select_category(c))
+        for code, label in CATEGORY_DISPLAY:
+            btn = ThemedButton(text=label, size_hint_y=None, height=40)
+            btn.bind(on_release=lambda instance, c=code: category_screen.select_category(c))
             category_screen.ids.categories.add_widget(btn)
 
     def on_stop(self):

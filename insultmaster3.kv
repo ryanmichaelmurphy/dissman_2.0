@@ -108,6 +108,13 @@
             size_hint_y: None
             height: 40
         BoxLayout:
+            id: teach_button
+            orientation: 'vertical'
+            padding: app.theme_vars['padding']
+            spacing: app.theme_vars['spacing']
+            size_hint_y: None
+            height: 40
+        BoxLayout:
             id: qr_button
             orientation: 'vertical'
             padding: app.theme_vars['padding']
@@ -129,3 +136,91 @@
             size_hint: None, None
             size: 400, 300  # Adjust the size as needed
             pos_hint: {'center_x': 0.5, 'center_y': 0.5}
+
+<TeachCategoryScreen>:
+    BoxLayout:
+        orientation: 'vertical'
+        padding: app.theme_vars['padding']
+        spacing: app.theme_vars['spacing']
+        canvas.before:
+            Color:
+                rgba: app.theme_colors['background']
+            Rectangle:
+                size: self.size
+                pos: self.pos
+        Label:
+            text: 'Teach Dissman an insult'
+            font_name: app.fonts['heading']
+            font_size: '24sp'
+            color: app.theme_colors['primary']
+            size_hint_y: None
+            height: 40
+        Label:
+            text: 'Which category?'
+            font_name: app.fonts['body']
+            font_size: '18sp'
+            color: app.theme_colors['secondary']
+            size_hint_y: None
+            height: 30
+        BoxLayout:
+            id: teach_categories
+            orientation: 'vertical'
+            size_hint_y: None
+            height: self.minimum_height
+            padding: app.theme_vars['padding']
+            spacing: app.theme_vars['spacing']
+
+<TeachWordScreen>:
+    BoxLayout:
+        orientation: 'vertical'
+        padding: app.theme_vars['padding']
+        spacing: app.theme_vars['spacing']
+        canvas.before:
+            Color:
+                rgba: app.theme_colors['background']
+            Rectangle:
+                size: self.size
+                pos: self.pos
+        Label:
+            id: prompt_label
+            text: ''
+            font_name: app.fonts['heading']
+            font_size: '22sp'
+            color: app.theme_colors['primary']
+            size_hint_y: None
+            height: 40
+        TextInput:
+            id: word_input
+            multiline: False
+            font_name: app.fonts['body']
+            font_size: '24sp'
+            size_hint_y: None
+            height: 50
+            keyboard_mode: 'managed'
+        BoxLayout:
+            id: keyboard_holder
+            size_hint_y: 1
+        BoxLayout:
+            id: action_row
+            orientation: 'horizontal'
+            size_hint_y: None
+            height: 50
+            spacing: 10
+
+<TeachAdjScreen@TeachWordScreen>:
+<TeachNounScreen@TeachWordScreen>:
+
+<TeachSubmitScreen>:
+    BoxLayout:
+        orientation: 'vertical'
+        canvas.before:
+            Color:
+                rgba: app.theme_colors['background']
+            Rectangle:
+                size: self.size
+                pos: self.pos
+        Label:
+            text: 'Got it.'
+            font_name: app.fonts['heading']
+            font_size: '32sp'
+            color: app.theme_colors['primary']
