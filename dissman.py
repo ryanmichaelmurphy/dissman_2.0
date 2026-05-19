@@ -129,9 +129,26 @@ class ImageJob:
         self.error = False
 
 
+# API bypass: on Windows (dev) we skip the OpenAI call by default and just
+# use the captured photo. Set DISSMAN_USE_API=1 to force the real call.
+USE_REAL_API = (not sys.platform.startswith("win")) or os.getenv("DISSMAN_USE_API") == "1"
+
+
 def start_image_generation(source_image_path, job, out_path):
     """Fire the GPT image edit in a background thread. Updates `job` in place."""
     job.reset()
+
+    if not USE_REAL_API:
+        print("[image-gen] bypass mode: using captured photo as doodle")
+        import shutil
+        try:
+            shutil.copyfile(source_image_path, out_path)
+            job.image_path = out_path
+            job.ready = True
+        except Exception as e:
+            print(f"[image-gen] bypass copy failed: {e}")
+            job.error = True
+        return None
 
     def _work():
         try:
@@ -235,9 +252,13 @@ class InsultScreen(Screen):
 class CameraScreen(Screen):
     def on_enter(self):
         speak("Let me get a good look at you")
-        # Clear any previous image or terminal display
-        os.system('clear')  # This clears the terminal screen
+        os.system('clear')
+
+        # Clear the previously-captured still and the previous live frame so
+        # nothing from the last run flashes before the new preview starts.
         self.ids.captured_image.source = ''
+        self.ids.captured_image.texture = None
+
         self.setup_camera()
 
         if not hasattr(self, 'img1'):
@@ -254,9 +275,10 @@ class CameraScreen(Screen):
                 color=[0, 0, 0]
             )
             self.add_widget(self.overlay_text)
+        else:
+            self.img1.texture = None
 
-        # Start webcam preview
-        Clock.schedule_interval(self.update_preview, 1 / 30)  # ~30fps for smoother preview
+        Clock.schedule_interval(self.update_preview, 1 / 30)
         Clock.schedule_once(self.capture_image, 7)
 
     def setup_camera(self):
@@ -484,17 +506,33 @@ class TeachWordScreen(Screen):
         self.ids.action_row.add_widget(cancel)
         self.ids.action_row.add_widget(submit)
 
-    def _on_key(self, keyboard, key, *args):
-        display, key_code, special, ascii_code = key
+    def _on_key(self, keyboard, keycode, *args):
+        # VKeyboard.on_key_up dispatches (keycode, internal, modifiers).
+        # keycode is an int for regular keys (e.g. 97 -> 'a') or a string
+        # like 'backspace' for specials. Sometimes a (int, str) tuple.
+        if isinstance(keycode, tuple) and len(keycode) >= 2:
+            key_str = keycode[1]
+        elif isinstance(keycode, str):
+            key_str = keycode
+        elif isinstance(keycode, int):
+            try:
+                key_str = chr(keycode)
+            except (ValueError, OverflowError):
+                return
+        else:
+            return
+
         current = self.ids.word_input.text
-        if special == 'backspace':
+        if key_str == 'backspace':
             self.ids.word_input.text = current[:-1]
-        elif special == 'enter':
+        elif key_str in ('enter', 'numpadenter'):
             self.submit()
-        elif special == 'spacebar':
+        elif key_str == 'spacebar':
             self.ids.word_input.text = current + ' '
-        elif display and len(display) == 1:
-            self.ids.word_input.text = current + display
+        elif key_str in ('shift', 'capslock', 'escape', 'tab'):
+            return
+        elif len(key_str) == 1:
+            self.ids.word_input.text = current + key_str
 
     def submit(self):
         word = self.ids.word_input.text.strip().lower()
