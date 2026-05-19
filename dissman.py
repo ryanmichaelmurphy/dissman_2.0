@@ -118,38 +118,18 @@ Config.set('graphics', 'height', '480')
 Config.set('graphics', 'borderless', '1')
 Config.set('graphics', 'fullscreen', '1')
 
-# G-rated adjectives and nouns
-g_adj = "clumsy scatterbrained grumpy sloppy cranky loony cheeky stubborn sneaky rascally mopey shifty snarky pouty grungy fussy sassy zonked knobby topsy-turvy clumsy scatterbrained grumpy sloppy cranky loony cheeky stubborn sneaky rascally mopey shifty snarky pouty grungy fussy sassy zonked knobby topsy-turvy"
-g_nouns = "doodle hamburger backpack bedding bedspread binder blanket blinds bookcase book broom brush bucket calendar angler toad horse candle carpet chair china clock coffee-table comb comforter computer container couch credenza curtain cushion heater houseplant magnet mop radiator radio refrigerator rug saucer saw scissors screwdriver settee shade sheet shelf shirt shoe smoke-detector sneaker socks sofa speaker toy tool tv toothpaste towel nutcase toaster pancake muffin wombat caboose goblin pirate ninja meatball cupcake tadpole dingbat noodle turnip alien gadget grasshopper pickle wigwam bonnethead sharksucker"
+from insult_store import InsultStore, CATEGORY_LABELS
 
-# R-rated adjectives and nouns (sensitive content redacted)
-r_adj = "shitty great-value pick-me horsefaced cum-guzzling christian vaginal straight cum semen smegma discharge fallopian anal aggressive arrogant boastful bossy boring careless clingy cruel cowardly deceitful dishonest greedy harsh impatient impulsive jealous moody narrow-minded overcritical rude selfish untrustworthy unhappy cumguzzling unfuckable incestuous sick perverted deranged depraved mountain-dew-drinking butterfaced self-centered revolting repellent repulsive sickening nauseating nauseous stomach-churning stomach-turning off-putting unpalatable unappetizing uninviting unsavoury distasteful foul nasty obnoxious odious"
-r_nouns = "eunuch no-dick cum-for-brains toesniffer dicksucker dicksniffer toesucker simp skidmark shit-stain anal-fissure anal-wart anal-cyst vaginal-cyst vaginal-discharge smegma foreskin dick-cheese cumguzzler yuppy hippy karen boomer dork nerd dweeb unfuckable pedophile butterface needledick incel neckbeard wart genital-wart homewrecker doof douche doucheholster douchebag cum-receptacle cum-dumpster cumrag cumslut bum degenerate derelict good-for-nothing no-account no-good slacker hetrosexual buttlover breitbart-reader andriod-user trump-lover republican cumslut buttmuncher nutsack ballsack boner christian penis cunt twat asshole fucker shitbag shit-for-brains cumrag gland intestine cecum colon rectum liver gallbladder mesentery pancreas anus kidney ureter bladder urethra ovary tube uterus cervix discharge vagina"
+INSULT_STORE = InsultStore(BASE_DIR / "insults")
 
-# Old-timey adjectives and nouns
-old_adj = "froward pernickety laggardly moonstruck mumpsimus spleeny fribble dandiprat rattlecap slugabed cacafuego raggabrash dithering muddle-headed tatterdemalion claptrap wifty bedswerver lackadaisical flapdoodle"
-old_nouns = "scallywag naysayer neerdowell landlover fustilarian snollygoster popinjay lickspittle rakefire whippersnapper noodle mumblecrust zounderkite gillywetfoot doodle pettifogger fopdoodle mooncalf clodpole hugger-mugger ragamuffin scalawag ninnyhammer flapdragon"
-
-# Combine to make an all list
-all_adj = g_adj + r_adj + old_adj
-all_nouns = g_nouns + r_nouns + old_nouns
-
-# Convert to lists
-g_adj_list = g_adj.split(" ")
-g_noun_list = g_nouns.split(" ")
-r_adj_list = r_adj.split(" ")
-r_noun_list = r_nouns.split(" ")
-old_adj_list = old_adj.split(" ")
-old_noun_list = old_nouns.split(" ")
-all_adj_list = all_adj.split(" ")
-all_noun_list = all_nouns.split(" ")
-
-categories = {
-    "G-rated": (g_adj_list, g_noun_list),
-    "R-rated": (r_adj_list, r_noun_list),
-    "Old-timey": (old_adj_list, old_noun_list),
-    "Anything Goes": (all_adj_list, all_noun_list),
-}
+# Category codes used internally: 'g', 'r', 'old', 'all'.
+# Display labels come from CATEGORY_LABELS; 'all' is "Anything Goes".
+CATEGORY_DISPLAY = [
+    ("g", "G-rated"),
+    ("r", "R-rated"),
+    ("old", "Old-timey"),
+    ("all", "Anything Goes"),
+]
 
 class ThemedButton(Button):
     def __init__(self, **kwargs):
@@ -171,14 +151,20 @@ class ThemedButton(Button):
         self.border_line.rectangle = (self.x, self.y, self.width, self.height)
 
 class InsultScreen(Screen):
-    def generate_insults(self, adj_list, noun_list):
-        return [f"{random.choice(adj_list)} {random.choice(noun_list)}" for _ in range(3)]
+    def generate_insults(self, category: str) -> list[str]:
+        adj_list = INSULT_STORE.adjectives(category)
+        noun_list = INSULT_STORE.nouns(category)
+        if not adj_list or not noun_list:
+            return []
+        return [
+            f"{random.choice(adj_list)} {random.choice(noun_list)}"
+            for _ in range(3)
+        ]
 
     def on_enter(self, *args):
-        self.ids.insult_options.clear_widgets()  # Clear existing buttons
+        self.ids.insult_options.clear_widgets()
         category = self.manager.current_category
-        adj_list, noun_list = categories[category]
-        insults = self.generate_insults(adj_list, noun_list)
+        insults = self.generate_insults(category)
         for insult in insults:
             btn = ThemedButton(text=insult, size_hint_y=None, height=40)
             btn.bind(on_release=self.show_insult)
@@ -441,8 +427,8 @@ class DisplayScreen(Screen):
                         print(f"Error deleting file {file_path}: {e}")
 
 class CategoryScreen(Screen):
-    def select_category(self, category):
-        self.manager.current_category = category
+    def select_category(self, category_code: str):
+        self.manager.current_category = category_code
         self.manager.transition.direction = 'left'
         self.manager.current = 'insult'
 
@@ -574,10 +560,9 @@ class InsultMasterApp(App):
 
     def populate_category_buttons(self, *args):
         category_screen = self.sm.get_screen('category')
-        for category in categories.keys():
-            btn = ThemedButton(text=category, size_hint_y=None,
-            height=40)
-            btn.bind(on_release=lambda instance, c=category: category_screen.select_category(c))
+        for code, label in CATEGORY_DISPLAY:
+            btn = ThemedButton(text=label, size_hint_y=None, height=40)
+            btn.bind(on_release=lambda instance, c=code: category_screen.select_category(c))
             category_screen.ids.categories.add_widget(btn)
 
     def on_stop(self):
