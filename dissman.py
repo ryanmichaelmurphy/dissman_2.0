@@ -338,6 +338,13 @@ class DisplayScreen(Screen):
 
         # Add functionality to print image and insult text
         self.ids.qr_button.clear_widgets()  # Clear existing buttons
+        self.ids.teach_button.clear_widgets()
+        teach_btn = ThemedButton(
+            text="Insult Dissman to teach him new insults",
+            size_hint_y=None, height=40,
+        )
+        teach_btn.bind(on_release=lambda x: self.go_to_teach())
+        self.ids.teach_button.add_widget(teach_btn)
         dall_e_image_path = self.ids.dall_e_image.source
         insult_text = self.ids.insult_label.text
         # insult_text format is "you [adj] [noun]."
@@ -366,12 +373,20 @@ class DisplayScreen(Screen):
         self.ids.qr_button.add_widget(qr_button)
 
         # Schedule transition to the splash screen after 10 seconds
-        Clock.schedule_once(lambda x: self.cleanup_and_restart(), 10)
+        self._return_event = Clock.schedule_once(lambda x: self.cleanup_and_restart(), 10)
 
     def cleanup_and_restart(self):
         self.has_entered = False
         self.p = None  # Release the printer by removing the reference
         self.manager.current = 'splash'
+
+    def go_to_teach(self):
+        # Cancel the auto-return-to-splash timer; teach flow owns the return.
+        if getattr(self, "_return_event", None):
+            self._return_event.cancel()
+        self.has_entered = False
+        self.manager.transition.direction = 'left'
+        self.manager.current = 'teach_category'
 
     def print_qr(self, p):
         # --- debounce so we don't print twice on a double-trigger ---
