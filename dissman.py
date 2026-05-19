@@ -113,6 +113,54 @@ def speak(text: str):
         )
 
 
+class ImageJob:
+    """Holds state for the in-flight or completed image generation."""
+
+    def __init__(self):
+        self.image_path = None
+        self.ready = False
+        self.error = False
+
+    def reset(self):
+        self.image_path = None
+        self.ready = False
+        self.error = False
+
+
+def start_image_generation(source_image_path, job, out_path):
+    """Fire the GPT image edit in a background thread. Updates `job` in place."""
+    job.reset()
+
+    def _work():
+        try:
+            with open(source_image_path, "rb") as f:
+                response = client.images.edit(
+                    model="gpt-image-1",
+                    image=f,
+                    prompt=(
+                        "You are a middle school bully. Draw this person as a crude "
+                        "middle school notebook doodle. Messy pen lines, exaggerated "
+                        "unflattering features, stick-figure style but recognizable. "
+                        "Make them uglier than they actually are with a stupid facial "
+                        "expression."
+                    ),
+                    n=1,
+                    size="1024x1024",
+                )
+            data = base64.b64decode(response.data[0].b64_json)
+            with open(out_path, "wb") as f:
+                f.write(data)
+            job.image_path = out_path
+            job.ready = True
+        except Exception as e:
+            print(f"[image-gen] failed: {e}")
+            job.error = True
+
+    t = threading.Thread(target=_work, daemon=True)
+    t.start()
+    return t
+
+
 Config.set('graphics', 'width', '800')
 Config.set('graphics', 'height', '480')
 Config.set('graphics', 'borderless', '1')
@@ -173,10 +221,14 @@ class InsultScreen(Screen):
         speak("Which insult best describes you?")
 
     def show_insult(self, instance):
-        article = "an" if instance.text[0] in 'aeiou' else "a"
-        self.manager.transition.direction = 'left'
-        self.manager.current = 'camera'
         self.manager.get_screen('display').ids.insult_label.text = f"you {instance.text}."
+        self.manager.transition.direction = 'left'
+        app = App.get_running_app()
+        if app.image_job.ready:
+            self.manager.get_screen('display').ids.dall_e_image.source = app.image_job.image_path
+            self.manager.current = 'display'
+        else:
+            self.manager.current = 'load'
 
 class CameraScreen(Screen):
     def on_enter(self):
@@ -227,88 +279,54 @@ class CameraScreen(Screen):
         self.img1.texture = texture
 
     def capture_image(self, dt):
-        # Ensure a frame is available
         ret, frame = self.camera.read()
         frame = cv2.convertScaleAbs(frame, alpha=1.0, beta=50)
-        if ret:
-            timestamp = str(int(time.time()))
-            save_path = path + 'test_' + timestamp + '.png'
-            cv2.imwrite(save_path, frame)
+        if not ret:
+            return
 
-            # Store the save_path in the App class
-            App.get_running_app().last_image_path = save_path
+        timestamp = str(int(time.time()))
+        save_path = path + 'test_' + timestamp + '.png'
+        cv2.imwrite(save_path, frame)
+        App.get_running_app().last_image_path = save_path
+        self.ids.captured_image.source = save_path
 
-            # Update the image on the screen
-            self.ids.captured_image.source = save_path
+        Clock.unschedule(self.update_preview)
+        if self.camera.isOpened():
+            self.camera.release()
 
-            # Stop the preview process and release the camera
-            Clock.unschedule(self.update_preview)
-            if self.camera.isOpened():
-                self.camera.release()
+        app = App.get_running_app()
+        out_path = f'{path}downloaded_image_{timestamp}.png'
+        start_image_generation(save_path, app.image_job, out_path)
 
-            # Schedule showing the loading screen after 2 seconds
-            Clock.schedule_once(self.show_loading_screen, 2)
+        Clock.schedule_once(self.go_to_insult, 1.5)
 
-    def show_loading_screen(self, dt):
-        self.manager.current = 'load'
+    def go_to_insult(self, dt):
+        self.manager.transition.direction = 'left'
+        self.manager.current = 'insult'
 
 class LoadScreen(Screen):
     def on_enter(self, *args):
-        self.timestamp = str(int(time.time()))  # Get current timestamp
-        self.image_path = f'{path}downloaded_image_{self.timestamp}.png'  # Class attribute
-        self.image_ready = False
-        self.old_image_url = None
-        self.image_widget = Image(source=f'{path}thinking0.png')
-        self.add_widget(self.image_widget)
+        if not hasattr(self, "image_widget"):
+            self.image_widget = Image(source=f'{path}thinking0.png')
+            self.add_widget(self.image_widget)
         self.current_image = 1
-        threading.Thread(target=self.fetch_image).start()
+        speak("Thinking bad thoughts about you.")
         Clock.schedule_interval(self.check_image_ready, 0.3)
 
-    def fetch_image(self):
-        try:
-            # Get the last image path from the App class
-            last_image_path = App.get_running_app().last_image_path
-
-            with open(last_image_path, "rb") as image_file:
-                response = client.images.edit(
-                    model="gpt-image-1",
-                    image=image_file,
-                    prompt="You are a middle school bully. Draw this person as a crude middle school notebook doodle. Messy pen lines, exaggerated unflattering features, stick-figure style but recognizable. Make them uglier than they actually are with a stupid facial expression.",
-                    n=1,
-                    size="1024x1024"
-                )
-
-            image_data = base64.b64decode(response.data[0].b64_json)
-            with open(self.image_path, 'wb') as file:
-                file.write(image_data)
-            self.image_ready = True
-            self.old_image_url = "generated"
-        except requests.RequestException as e:
-            print(f"Error: Failed to fetch the image from the URL. {e}")
-            Clock.schedule_once(
-                lambda dt: setattr(self.manager, "current", "splash"),
-                0,
-            )
-        except Exception as e:
-            print(f"An unexpected error occurred: {e}")
-            Clock.schedule_once(
-                lambda dt: setattr(self.manager, "current", "splash"),
-                0,
-            )
-
     def check_image_ready(self, dt):
-        base_path = f'{path}thinking'
+        app = App.get_running_app()
+        if app.image_job.error:
+            self.manager.current = 'splash'
+            return False
+
         num_images = 16
-        images = [f'{base_path}{i}.png' for i in range(num_images)]
+        self.current_image = (self.current_image + 1) % num_images
+        self.image_widget.source = f'{path}thinking{self.current_image}.png'
 
-        self.current_image = (self.current_image + 1) % len(images)
-        self.image_widget.source = images[self.current_image]
-
-        if self.image_ready and self.old_image_url:  # Check if the image is ready and URL has changed
-            self.manager.get_screen('display').ids.dall_e_image.source = self.image_path
+        if app.image_job.ready:
+            self.manager.get_screen('display').ids.dall_e_image.source = app.image_job.image_path
             self.manager.current = 'display'
-            self.image_ready = False  # Reset the image readiness
-            return False  # Unschedule the interval if image is ready
+            return False
 
 class DisplayScreen(Screen):
     has_entered = False
@@ -430,7 +448,7 @@ class CategoryScreen(Screen):
     def select_category(self, category_code: str):
         self.manager.current_category = category_code
         self.manager.transition.direction = 'left'
-        self.manager.current = 'insult'
+        self.manager.current = 'camera'
 
 class SplashScreen(Screen):
     def on_enter(self, *args):
@@ -542,6 +560,7 @@ class InsultMasterApp(App):
         }
 
         self.sm = ScreenManager(transition=NoTransition())
+        self.image_job = ImageJob()
         self.sm.add_widget(SplashScreen(name='splash'))
         self.sm.add_widget(CategoryScreen(name='category'))
         self.sm.add_widget(InsultScreen(name='insult'))
