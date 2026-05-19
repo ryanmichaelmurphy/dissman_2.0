@@ -169,3 +169,43 @@
             height: self.minimum_height
             padding: app.theme_vars['padding']
             spacing: app.theme_vars['spacing']
+
+<TeachWordScreen>:
+    BoxLayout:
+        orientation: 'vertical'
+        padding: app.theme_vars['padding']
+        spacing: app.theme_vars['spacing']
+        canvas.before:
+            Color:
+                rgba: app.theme_colors['background']
+            Rectangle:
+                size: self.size
+                pos: self.pos
+        Label:
+            id: prompt_label
+            text: ''
+            font_name: app.fonts['heading']
+            font_size: '22sp'
+            color: app.theme_colors['primary']
+            size_hint_y: None
+            height: 40
+        TextInput:
+            id: word_input
+            multiline: False
+            font_name: app.fonts['body']
+            font_size: '24sp'
+            size_hint_y: None
+            height: 50
+            keyboard_mode: 'managed'
+        BoxLayout:
+            id: keyboard_holder
+            size_hint_y: 1
+        BoxLayout:
+            id: action_row
+            orientation: 'horizontal'
+            size_hint_y: None
+            height: 50
+            spacing: 10
+
+<TeachAdjScreen@TeachWordScreen>:
+<TeachNounScreen@TeachWordScreen>:

@@ -6,6 +6,7 @@ from kivy.uix.screenmanager import ScreenManager, Screen, NoTransition
 from kivy.clock import Clock
 from kivy.config import Config
 from kivy.uix.image import Image
+from kivy.uix.vkeyboard import VKeyboard
 from kivy.core.image import Image as CoreImage
 from kivy.lang import Builder
 from kivy.graphics import Color, Line
@@ -459,6 +460,69 @@ class DisplayScreen(Screen):
                     except Exception as e:
                         print(f"Error deleting file {file_path}: {e}")
 
+class TeachWordScreen(Screen):
+    prompt = ""
+    next_screen = ""
+    pos_key = ""
+
+    def on_enter(self, *args):
+        self.ids.prompt_label.text = self.prompt
+        self.ids.word_input.text = ""
+        speak(self.prompt)
+
+        self.ids.keyboard_holder.clear_widgets()
+        kb = VKeyboard(layout='qwerty', size_hint=(1, 1))
+        kb.bind(on_key_up=self._on_key)
+        self.ids.keyboard_holder.add_widget(kb)
+
+        self.ids.action_row.clear_widgets()
+        cancel = ThemedButton(text="Cancel")
+        cancel.bind(on_release=lambda x: self.cancel())
+        submit = ThemedButton(text="Submit")
+        submit.bind(on_release=lambda x: self.submit())
+        self.ids.action_row.add_widget(cancel)
+        self.ids.action_row.add_widget(submit)
+
+    def _on_key(self, keyboard, key, *args):
+        display, key_code, special, ascii_code = key
+        current = self.ids.word_input.text
+        if special == 'backspace':
+            self.ids.word_input.text = current[:-1]
+        elif special == 'enter':
+            self.submit()
+        elif special == 'spacebar':
+            self.ids.word_input.text = current + ' '
+        elif display and len(display) == 1:
+            self.ids.word_input.text = current + display
+
+    def submit(self):
+        word = self.ids.word_input.text.strip().lower()
+        if not word:
+            speak("Type something first.")
+            return
+        app = App.get_running_app()
+        app.teach_submission[self.pos_key] = word
+        self.manager.transition.direction = 'left'
+        self.manager.current = self.next_screen
+
+    def cancel(self):
+        App.get_running_app().teach_submission = {}
+        self.manager.transition.direction = 'right'
+        self.manager.current = 'splash'
+
+
+class TeachAdjScreen(TeachWordScreen):
+    prompt = "Type the adjective"
+    pos_key = "adj"
+    next_screen = "teach_noun"
+
+
+class TeachNounScreen(TeachWordScreen):
+    prompt = "Type the noun"
+    pos_key = "noun"
+    next_screen = "teach_submit"
+
+
 class TeachCategoryScreen(Screen):
     def on_enter(self, *args):
         self.ids.teach_categories.clear_widgets()
@@ -598,6 +662,8 @@ class InsultMasterApp(App):
         self.sm.add_widget(LoadScreen(name='load'))
         self.sm.add_widget(DisplayScreen(name='display'))
         self.sm.add_widget(TeachCategoryScreen(name='teach_category'))
+        self.sm.add_widget(TeachAdjScreen(name='teach_adj'))
+        self.sm.add_widget(TeachNounScreen(name='teach_noun'))
 
         return self.sm
 
