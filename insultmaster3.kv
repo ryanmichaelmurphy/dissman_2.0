@@ -209,3 +209,18 @@
 
 <TeachAdjScreen@TeachWordScreen>:
 <TeachNounScreen@TeachWordScreen>:
+
+<TeachSubmitScreen>:
+    BoxLayout:
+        orientation: 'vertical'
+        canvas.before:
+            Color:
+                rgba: app.theme_colors['background']
+            Rectangle:
+                size: self.size
+                pos: self.pos
+        Label:
+            text: 'Got it.'
+            font_name: app.fonts['heading']
+            font_size: '32sp'
+            color: app.theme_colors['primary']

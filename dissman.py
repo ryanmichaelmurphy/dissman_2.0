@@ -35,6 +35,7 @@ from queue import Queue, Empty
 import subprocess
 import sys
 from dotenv import load_dotenv
+import github_sync
 
 load_dotenv()
 
@@ -523,6 +524,35 @@ class TeachNounScreen(TeachWordScreen):
     next_screen = "teach_submit"
 
 
+class TeachSubmitScreen(Screen):
+    def on_enter(self, *args):
+        app = App.get_running_app()
+        sub = app.teach_submission
+        category = sub.get("category")
+        adj = sub.get("adj")
+        noun = sub.get("noun")
+        app.teach_submission = {}
+
+        try:
+            INSULT_STORE.record_submission(category, "adj", adj)
+            INSULT_STORE.record_submission(category, "noun", noun)
+        except (ValueError, TypeError) as e:
+            print(f"[teach] rejected: {e}")
+            speak("That didn't work. Try again later.")
+            Clock.schedule_once(lambda dt: self._go_home(), 2)
+            return
+
+        msg = f"submission: {category}/{adj} {noun}"
+        github_sync.push_submission_async(repo_dir=BASE_DIR, message=msg)
+
+        speak(f"Thanks. I will remember: {adj} {noun}.")
+        Clock.schedule_once(lambda dt: self._go_home(), 3)
+
+    def _go_home(self):
+        self.manager.transition.direction = 'right'
+        self.manager.current = 'splash'
+
+
 class TeachCategoryScreen(Screen):
     def on_enter(self, *args):
         self.ids.teach_categories.clear_widgets()
@@ -664,6 +694,7 @@ class InsultMasterApp(App):
         self.sm.add_widget(TeachCategoryScreen(name='teach_category'))
         self.sm.add_widget(TeachAdjScreen(name='teach_adj'))
         self.sm.add_widget(TeachNounScreen(name='teach_noun'))
+        self.sm.add_widget(TeachSubmitScreen(name='teach_submit'))
 
         return self.sm
 
