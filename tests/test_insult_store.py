@@ -74,7 +74,8 @@ def test_anything_goes_unions_all_categories(tmp_path):
 
 def test_record_submission_appends_row(store):
     store.record_submission("g", "adj", "snazzy", now=datetime(2026, 5, 18, 12, 0, 0))
-    rows = list(csv.DictReader((store.base_dir / "submissions" / "adjectives.csv").open()))
+    with (store.base_dir / "submissions" / "adjectives.csv").open() as f:
+        rows = list(csv.DictReader(f))
     assert rows == [{
         "word": "snazzy", "category": "g",
         "submission_date": "2026-05-18T12:00:00",
@@ -83,8 +84,10 @@ def test_record_submission_appends_row(store):
 
 def test_record_submission_writes_nouns_to_nouns_file(store):
     store.record_submission("r", "noun", "wombat", now=datetime(2026, 5, 18, 12, 0, 0))
-    adj_rows = list(csv.DictReader((store.base_dir / "submissions" / "adjectives.csv").open()))
-    noun_rows = list(csv.DictReader((store.base_dir / "submissions" / "nouns.csv").open()))
+    with (store.base_dir / "submissions" / "adjectives.csv").open() as f:
+        adj_rows = list(csv.DictReader(f))
+    with (store.base_dir / "submissions" / "nouns.csv").open() as f:
+        noun_rows = list(csv.DictReader(f))
     assert adj_rows == []
     assert noun_rows[0]["word"] == "wombat"
     assert noun_rows[0]["category"] == "r"
@@ -92,7 +95,8 @@ def test_record_submission_writes_nouns_to_nouns_file(store):
 
 def test_record_submission_normalizes_word(store):
     store.record_submission("g", "adj", "  Snazzy  ", now=datetime(2026, 5, 18, 12, 0, 0))
-    rows = list(csv.DictReader((store.base_dir / "submissions" / "adjectives.csv").open()))
+    with (store.base_dir / "submissions" / "adjectives.csv").open() as f:
+        rows = list(csv.DictReader(f))
     assert rows[0]["word"] == "snazzy"
 
 
