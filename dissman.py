@@ -459,6 +459,20 @@ class DisplayScreen(Screen):
                     except Exception as e:
                         print(f"Error deleting file {file_path}: {e}")
 
+class TeachCategoryScreen(Screen):
+    def on_enter(self, *args):
+        self.ids.teach_categories.clear_widgets()
+        speak("Pick a category for your insult.")
+        for code, label in [("g", "G-rated"), ("r", "R-rated"), ("old", "Old-timey")]:
+            btn = ThemedButton(text=label, size_hint_y=None, height=50)
+            btn.bind(on_release=lambda inst, c=code: self.select(c))
+            self.ids.teach_categories.add_widget(btn)
+
+    def select(self, category_code):
+        App.get_running_app().teach_submission = {"category": category_code}
+        self.manager.transition.direction = 'left'
+        self.manager.current = 'teach_adj'
+
 class CategoryScreen(Screen):
     def select_category(self, category_code: str):
         self.manager.current_category = category_code
@@ -575,6 +589,7 @@ class InsultMasterApp(App):
         }
 
         self.sm = ScreenManager(transition=NoTransition())
+        self.teach_submission = {}
         self.image_job = ImageJob()
         self.sm.add_widget(SplashScreen(name='splash'))
         self.sm.add_widget(CategoryScreen(name='category'))
@@ -582,6 +597,7 @@ class InsultMasterApp(App):
         self.sm.add_widget(CameraScreen(name='camera'))
         self.sm.add_widget(LoadScreen(name='load'))
         self.sm.add_widget(DisplayScreen(name='display'))
+        self.sm.add_widget(TeachCategoryScreen(name='teach_category'))
 
         return self.sm
 

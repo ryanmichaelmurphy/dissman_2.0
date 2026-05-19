@@ -136,3 +136,36 @@
             size_hint: None, None
             size: 400, 300  # Adjust the size as needed
             pos_hint: {'center_x': 0.5, 'center_y': 0.5}
+
+<TeachCategoryScreen>:
+    BoxLayout:
+        orientation: 'vertical'
+        padding: app.theme_vars['padding']
+        spacing: app.theme_vars['spacing']
+        canvas.before:
+            Color:
+                rgba: app.theme_colors['background']
+            Rectangle:
+                size: self.size
+                pos: self.pos
+        Label:
+            text: 'Teach Dissman an insult'
+            font_name: app.fonts['heading']
+            font_size: '24sp'
+            color: app.theme_colors['primary']
+            size_hint_y: None
+            height: 40
+        Label:
+            text: 'Which category?'
+            font_name: app.fonts['body']
+            font_size: '18sp'
+            color: app.theme_colors['secondary']
+            size_hint_y: None
+            height: 30
+        BoxLayout:
+            id: teach_categories
+            orientation: 'vertical'
+            size_hint_y: None
+            height: self.minimum_height
+            padding: app.theme_vars['padding']
+            spacing: app.theme_vars['spacing']
