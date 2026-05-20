@@ -607,7 +607,7 @@ class TeachSubmitScreen(Screen):
         github_sync.push_submission_async(repo_dir=BASE_DIR, message=msg)
 
         speak(f"Thanks. I will remember: {adj} {noun}.")
-        Clock.schedule_once(lambda dt: self._go_home(), 3)
+        Clock.schedule_once(lambda dt: self._go_home(), 6)
 
     def _go_home(self):
         self.manager.transition.direction = 'right'
