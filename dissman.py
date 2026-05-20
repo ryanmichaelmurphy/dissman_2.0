@@ -574,13 +574,13 @@ class TeachWordScreen(Screen):
 
 
 class TeachAdjScreen(TeachWordScreen):
-    prompt = "Type the adjective"
+    prompt = "Type the insulting adjective"
     pos_key = "adj"
     next_screen = "teach_noun"
 
 
 class TeachNounScreen(TeachWordScreen):
-    prompt = "Type the noun"
+    prompt = "Type the insulting noun"
     pos_key = "noun"
     next_screen = "teach_submit"
 
