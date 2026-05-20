@@ -2,14 +2,16 @@ from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.label import Label
-from kivy.uix.screenmanager import ScreenManager, Screen, NoTransition
+from kivy.uix.screenmanager import ScreenManager, Screen, NoTransition, SlideTransition
 from kivy.clock import Clock
 from kivy.config import Config
 from kivy.uix.image import Image
+from kivy.uix.widget import Widget
+from kivy.animation import Animation
 from kivy.uix.vkeyboard import VKeyboard
 from kivy.core.image import Image as CoreImage
 from kivy.lang import Builder
-from kivy.graphics import Color, Line
+from kivy.graphics import Color, Line, Rectangle
 from kivy.graphics.texture import Texture
 from kivy.clock import mainthread
 import random
@@ -151,18 +153,14 @@ def start_image_generation(source_image_path, job, out_path):
         return None
 
     def _work():
+        prompt_name, prompt_text = PROMPT_STORE.choose()
+        print(f"[image-gen] using prompt '{prompt_name}'")
         try:
             with open(source_image_path, "rb") as f:
                 response = client.images.edit(
                     model="gpt-image-1",
                     image=f,
-                    prompt=(
-                        "You are a middle school bully. Draw this person as a crude "
-                        "middle school notebook doodle. Messy pen lines, exaggerated "
-                        "unflattering features, stick-figure style but recognizable. "
-                        "Make them uglier than they actually are with a stupid facial "
-                        "expression."
-                    ),
+                    prompt=prompt_text,
                     n=1,
                     size="1024x1024",
                 )
@@ -188,6 +186,8 @@ Config.set('graphics', 'fullscreen', '1')
 from insult_store import InsultStore, CATEGORY_LABELS
 
 INSULT_STORE = InsultStore(BASE_DIR / "insults")
+from prompt_store import PromptStore
+PROMPT_STORE = PromptStore(BASE_DIR / "prompts" / "drawing_prompts.csv")
 
 # Category codes used internally: 'g', 'r', 'old', 'all'.
 # Display labels come from CATEGORY_LABELS; 'all' is "Anything Goes".
@@ -302,6 +302,23 @@ class CameraScreen(Screen):
         texture.blit_buffer(buf, colorfmt='rgb', bufferfmt='ubyte')
         self.img1.texture = texture
 
+    def _flash(self):
+        if not hasattr(self, "flash_widget"):
+            self.flash_widget = Widget(size_hint=(1, 1), opacity=0)
+            with self.flash_widget.canvas:
+                Color(1, 1, 1, 1)
+                self.flash_rect = Rectangle(pos=self.pos, size=self.size)
+            self.flash_widget.bind(
+                pos=lambda inst, val: setattr(self.flash_rect, "pos", val),
+                size=lambda inst, val: setattr(self.flash_rect, "size", val),
+            )
+            self.add_widget(self.flash_widget)
+        # Keep the flash on top in case other widgets were added later.
+        self.remove_widget(self.flash_widget)
+        self.add_widget(self.flash_widget)
+        self.flash_widget.opacity = 1.0
+        Animation(opacity=0.0, duration=0.3).start(self.flash_widget)
+
     def capture_image(self, dt):
         ret, frame = self.camera.read()
         frame = cv2.convertScaleAbs(frame, alpha=1.0, beta=50)
@@ -311,6 +328,7 @@ class CameraScreen(Screen):
         timestamp = str(int(time.time()))
         save_path = path + 'test_' + timestamp + '.png'
         cv2.imwrite(save_path, frame)
+        self._flash()
         App.get_running_app().last_image_path = save_path
         self.ids.captured_image.source = save_path
 
@@ -325,8 +343,13 @@ class CameraScreen(Screen):
         Clock.schedule_once(self.go_to_insult, 1.5)
 
     def go_to_insult(self, dt):
-        self.manager.transition.direction = 'left'
+        prev = self.manager.transition
+        self.manager.transition = SlideTransition(direction='left', duration=0.4)
         self.manager.current = 'insult'
+
+        def _restore(_):
+            self.manager.transition = prev
+        Clock.schedule_once(_restore, 0.5)
 
 class LoadScreen(Screen):
     def on_enter(self, *args):
@@ -551,13 +574,13 @@ class TeachWordScreen(Screen):
 
 
 class TeachAdjScreen(TeachWordScreen):
-    prompt = "Type the adjective"
+    prompt = "Type the insulting adjective"
     pos_key = "adj"
     next_screen = "teach_noun"
 
 
 class TeachNounScreen(TeachWordScreen):
-    prompt = "Type the noun"
+    prompt = "Type the insulting noun"
     pos_key = "noun"
     next_screen = "teach_submit"
 
@@ -584,7 +607,7 @@ class TeachSubmitScreen(Screen):
         github_sync.push_submission_async(repo_dir=BASE_DIR, message=msg)
 
         speak(f"Thanks. I will remember: {adj} {noun}.")
-        Clock.schedule_once(lambda dt: self._go_home(), 3)
+        Clock.schedule_once(lambda dt: self._go_home(), 6)
 
     def _go_home(self):
         self.manager.transition.direction = 'right'
