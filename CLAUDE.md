@@ -86,6 +86,19 @@ insults/
 - Theme: lime green text (#C9D32D) on black buttons, orange accents, dark blue background
 - Font: FreeMono throughout
 
+## Pi Access Constraint (IMPORTANT)
+
+**The maintainer does not have regular SSH or physical access to the Pi.** The only opportunity for changes to land in production is when a third party power-cycles the device remotely. That reboot triggers `start.sh`, which pulls `origin/main` and launches the app.
+
+**Implications for any proposed change:**
+- Anything that lands *only* by `git pull` (Python code, kv files, CSV data, image assets already tracked in the repo) deploys automatically on the next reboot. Safe.
+- Anything that requires SSH (pip installs, apt installs, systemd unit edits, file copies outside the repo, GPIO/wiring tweaks, `git config` changes, credential rotation, etc.) **cannot be assumed to happen.** Flag these prominently in the PR/commit/plan and propose a workaround whenever possible:
+  - Prefer pure-stdlib code over new pip deps.
+  - If a new pip dep is unavoidable, consider vendoring it into the repo (`vendor/<pkg>/`) and adding the path to `sys.path` in `start.sh`.
+  - If config must change, fold it into `start.sh` (which the repo owns) rather than the systemd unit.
+  - If credentials must rotate, document the exact one-line command the operator would run.
+- When in doubt, ask before assuming Pi-side work will get done.
+
 ## Deploying Changes to Pi
 
 The Pi's app directory is a git repo tracking `origin/main`. On every service start, `start.sh` runs `git fetch && git reset --hard origin/main` (with a 20s timeout, offline-tolerant) before launching `python3 dissman.py`. To deploy: push to `main`, then on the Pi:
