@@ -23,11 +23,16 @@ Dissman ("InsultMaster 3.0") is a coin-operated Raspberry Pi kiosk that generate
 - TTS uses platform-native speech (PowerShell on Windows, `say` on macOS)
 - Requires `.env` file with `OPENAI_API_KEY`
 
-**Dependencies (no requirements.txt exists):**
+**Dependencies:** All versions pinned in `requirements.txt`.
+
+Install (dev or Pi):
 ```
-kivy, opencv-python, numpy, gpiozero, python-escpos, pyttsx3, openai, python-dotenv, pillow, requests
+python -m pip install -r requirements.txt
 ```
-System packages on Pi: `espeak-ng`
+
+System packages on Pi: `espeak-ng` (`sudo apt install -y espeak-ng`).
+
+Bump procedure: install the new version of a single package locally, walk Dissman end-to-end, then update the `==` line in `requirements.txt`. The `pywin32` / `pypiwin32` / `comtypes` entries are Windows-only TTS shims that pip just skips on Linux. `gpiozero` and `python-escpos` install fine everywhere but only function on the Pi.
 
 ## Architecture
 
