@@ -151,18 +151,14 @@ def start_image_generation(source_image_path, job, out_path):
         return None
 
     def _work():
+        prompt_name, prompt_text = PROMPT_STORE.choose()
+        print(f"[image-gen] using prompt '{prompt_name}'")
         try:
             with open(source_image_path, "rb") as f:
                 response = client.images.edit(
                     model="gpt-image-1",
                     image=f,
-                    prompt=(
-                        "You are a middle school bully. Draw this person as a crude "
-                        "middle school notebook doodle. Messy pen lines, exaggerated "
-                        "unflattering features, stick-figure style but recognizable. "
-                        "Make them uglier than they actually are with a stupid facial "
-                        "expression."
-                    ),
+                    prompt=prompt_text,
                     n=1,
                     size="1024x1024",
                 )
@@ -188,6 +184,8 @@ Config.set('graphics', 'fullscreen', '1')
 from insult_store import InsultStore, CATEGORY_LABELS
 
 INSULT_STORE = InsultStore(BASE_DIR / "insults")
+from prompt_store import PromptStore
+PROMPT_STORE = PromptStore(BASE_DIR / "prompts" / "drawing_prompts.csv")
 
 # Category codes used internally: 'g', 'r', 'old', 'all'.
 # Display labels come from CATEGORY_LABELS; 'all' is "Anything Goes".
