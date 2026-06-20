@@ -84,6 +84,13 @@ class PromptStore:
 
         return PromptChoice("fallback", FALLBACK_PROMPT, PrintSettings.defaults())
 
+    def base(self):
+        """Return the is_base==true row as a PromptChoice, or None if absent."""
+        for r in self._load():
+            if _is_truthy(r.get("is_base")):
+                return self._to_choice(r)
+        return None
+
     @staticmethod
     def _to_choice(row):
         return PromptChoice(

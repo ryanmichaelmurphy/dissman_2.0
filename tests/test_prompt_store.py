@@ -109,3 +109,32 @@ def test_choose_includes_print_settings(tmp_path):
 def test_fallback_choice_has_default_settings(tmp_path):
     c = PromptStore(tmp_path / "nope.csv").choose()
     assert c.settings == PrintSettings.defaults()
+
+
+def test_base_returns_is_base_row_with_settings(tmp_path):
+    p = tmp_path / "drawing_prompts.csv"
+    p.write_text(
+        "name,weight,is_base,binarization,threshold,contrast,brightness,"
+        "resize_width,sharpness,gamma,prompt\n"
+        "a,0,false,dither,128,0.3,1.0,380,1.0,1.0,not base\n"
+        "b,1,true,threshold,150,0.9,1.0,384,1.0,1.0,the base\n",
+        newline="",
+    )
+    c = PromptStore(p).base()
+    assert c is not None
+    assert c.name == "b"
+    assert c.prompt == "the base"
+    assert c.settings.binarization == "threshold"
+    assert c.settings.threshold == 150
+
+
+def test_base_returns_none_when_no_is_base(tmp_path):
+    p = tmp_path / "drawing_prompts.csv"
+    p.write_text(
+        "name,weight,is_base,prompt\na,1,false,x\n", newline="",
+    )
+    assert PromptStore(p).base() is None
+
+
+def test_base_tolerates_missing_csv(tmp_path):
+    assert PromptStore(tmp_path / "nope.csv").base() is None
