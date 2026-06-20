@@ -58,10 +58,10 @@ def read_last_successful(path) -> Optional[PromptChoice]:
     except (OSError, ValueError, KeyError, TypeError):
         return None
     raw = data.get("settings")
-    try:
-        settings = PrintSettings(**raw) if isinstance(raw, dict) else PrintSettings.defaults()
-    except TypeError:
-        settings = PrintSettings.defaults()
+    # from_row coerces/clamps values and ignores unknown keys, so a settings
+    # block with wrong-typed, out-of-range, or extra fields degrades gracefully
+    # to defaults instead of raising or passing bad values downstream.
+    settings = PrintSettings.from_row(raw) if isinstance(raw, dict) else PrintSettings.defaults()
     return PromptChoice(name, prompt, settings)
 
 
@@ -78,5 +78,6 @@ def write_last_successful(path, choice: PromptChoice) -> None:
         tmp = path.with_suffix(path.suffix + ".tmp")
         tmp.write_text(json.dumps(payload, indent=2))
         os.replace(tmp, path)
-    except OSError as e:
+    except Exception as e:
+        # Best-effort: recording state must never break image generation.
         print(f"[prompt_fallback] could not record last-successful: {e}", flush=True)

@@ -98,6 +98,19 @@ def test_read_garbage_settings_falls_back_to_defaults(tmp_path):
     assert c.settings == PrintSettings.defaults()
 
 
+def test_read_wrong_type_settings_coerced_not_crashed(tmp_path):
+    # correct keys but a wrong-typed value must coerce/default, never raise
+    p = tmp_path / "x.json"
+    p.write_text(json.dumps({
+        "name": "n", "prompt": "P",
+        "settings": {"binarization": "threshold", "threshold": "oops"},
+    }))
+    c = read_last_successful(p)
+    assert c is not None
+    assert c.settings.binarization == "threshold"   # valid key honored
+    assert c.settings.threshold == 128              # bad value -> default
+
+
 def test_write_then_read_round_trip(tmp_path):
     p = tmp_path / "x.json"
     original = _choice("n", "P", binarization="threshold", threshold=140, contrast=0.8,
