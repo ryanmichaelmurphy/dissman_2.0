@@ -1,0 +1,4 @@
+# start.sh is the Pi's boot wrapper; CRLF would break its #!/bin/bash shebang
+# and stop the app launching. Force LF for all shell scripts regardless of the
+# checkout machine's core.autocrlf setting.
+*.sh text eol=lf

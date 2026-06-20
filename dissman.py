@@ -148,7 +148,14 @@ def start_image_generation(source_image_path, job, out_path):
             job.image_path = out_path
             job.ready = True
         except Exception as e:
-            print(f"[image-gen] failed: {e}")
+            # OpenAI errors carry the real reason (e.g. moderation_blocked,
+            # safety_violations) in `.body`; plain exceptions fall back to str().
+            # flush=True so it reaches the systemd journal immediately instead of
+            # sitting in a block buffer that never drains while the app runs.
+            detail = getattr(e, "body", None) or str(e)
+            status = getattr(e, "status_code", None)
+            print(f"[image-gen] failed: {type(e).__name__} "
+                  f"(status={status}): {detail}", flush=True)
             job.error = True
 
     t = threading.Thread(target=_work, daemon=True)
