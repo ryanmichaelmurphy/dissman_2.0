@@ -102,11 +102,13 @@ class ImageJob:
         self.image_path = None
         self.ready = False
         self.error = False
+        self.settings = None
 
     def reset(self):
         self.image_path = None
         self.ready = False
         self.error = False
+        self.settings = None
 
 
 # API bypass: on Windows (dev) we skip the OpenAI call by default and just
@@ -131,7 +133,9 @@ def start_image_generation(source_image_path, job, out_path):
         return None
 
     def _work():
-        prompt_name, prompt_text = PROMPT_STORE.choose()
+        choice = PROMPT_STORE.choose()
+        prompt_name, prompt_text = choice.name, choice.prompt
+        job.settings = choice.settings
         print(f"[image-gen] using prompt '{prompt_name}'")
         try:
             with open(source_image_path, "rb") as f:
@@ -446,22 +450,22 @@ class DisplayScreen(Screen):
         p._raw(b'\x1b\x40')
 
     def print_image_and_text(self, image_path, text, p):
-        from PIL import Image, ImageEnhance
+        from PIL import Image
+        from kivy.app import App
+        from print_pipeline import render_for_thermal, PrintSettings
 
-        # Load and process the image
+        # Load and process the image through the shared thermal pipeline so the
+        # output matches what the lab tuned. Settings ride on the image job;
+        # fall back to defaults (bypass mode / missing job).
+        app = App.get_running_app()
+        settings = getattr(app.image_job, "settings", None) or PrintSettings.defaults()
         image = Image.open(image_path)
-        max_width = 380
-        max_height = 380
-        image = image.resize((max_width, max_height), Image.Resampling.LANCZOS)
-
-        # Decrease the contrast of the image
-        enhancer = ImageEnhance.Contrast(image)
-        image = enhancer.enhance(0.3)
+        processed = render_for_thermal(image, settings)
 
         # Save the processed image to a temporary path
         timestamp = str(int(time.time()))
-        temp_image_path = path + "downloaded_image_"+ timestamp +".jpg"
-        image.save(temp_image_path)
+        temp_image_path = path + "downloaded_image_"+ timestamp +".png"
+        processed.save(temp_image_path)
 
         try:
             # Clear the buffer before printing

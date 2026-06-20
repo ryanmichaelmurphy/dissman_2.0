@@ -4,7 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from prompt_store import PromptStore, FALLBACK_PROMPT
+from prompt_store import PromptStore, PromptChoice, FALLBACK_PROMPT
+from print_pipeline import PrintSettings
 
 
 def _write_csv(path: Path, rows: list[dict]) -> None:
@@ -22,9 +23,9 @@ def test_choose_returns_prompt_text(tmp_path):
         {"name": "a", "weight": "1", "is_base": "true", "prompt": "the only prompt"},
     ])
     s = PromptStore(p)
-    name, prompt = s.choose()
-    assert name == "a"
-    assert prompt == "the only prompt"
+    c = s.choose()
+    assert c.name == "a"
+    assert c.prompt == "the only prompt"
 
 
 def test_choose_uses_weights(tmp_path):
@@ -35,7 +36,7 @@ def test_choose_uses_weights(tmp_path):
     ])
     s = PromptStore(p)
     random.seed(0)
-    picks = [s.choose()[0] for _ in range(1000)]
+    picks = [s.choose().name for _ in range(1000)]
     base = picks.count("base")
     assert 950 < base < 999
 
@@ -47,24 +48,23 @@ def test_choose_falls_back_to_base_when_all_weights_zero(tmp_path):
         {"name": "alt", "weight": "0", "is_base": "false", "prompt": "alt prompt"},
     ])
     s = PromptStore(p)
-    name, prompt = s.choose()
-    assert name == "base"
-    assert prompt == "base prompt"
+    c = s.choose()
+    assert c.name == "base"
+    assert c.prompt == "base prompt"
 
 
 def test_choose_falls_back_to_hardcoded_when_csv_missing(tmp_path):
     s = PromptStore(tmp_path / "nonexistent.csv")
-    name, prompt = s.choose()
-    assert name == "fallback"
-    assert prompt == FALLBACK_PROMPT
+    c = s.choose()
+    assert c.name == "fallback"
+    assert c.prompt == FALLBACK_PROMPT
 
 
 def test_choose_falls_back_to_hardcoded_when_csv_empty(tmp_path):
     p = tmp_path / "drawing_prompts.csv"
     _write_csv(p, [])
     s = PromptStore(p)
-    name, prompt = s.choose()
-    assert name == "fallback"
+    assert s.choose().name == "fallback"
 
 
 def test_negative_weights_treated_as_zero(tmp_path):
@@ -76,8 +76,7 @@ def test_negative_weights_treated_as_zero(tmp_path):
     s = PromptStore(p)
     random.seed(42)
     for _ in range(100):
-        name, _ = s.choose()
-        assert name == "base"
+        assert s.choose().name == "base"
 
 
 def test_non_numeric_weight_treated_as_zero(tmp_path):
@@ -89,5 +88,24 @@ def test_non_numeric_weight_treated_as_zero(tmp_path):
     s = PromptStore(p)
     random.seed(1)
     for _ in range(100):
-        name, _ = s.choose()
-        assert name == "base"
+        assert s.choose().name == "base"
+
+
+def test_choose_includes_print_settings(tmp_path):
+    p = tmp_path / "drawing_prompts.csv"
+    p.write_text(
+        "name,weight,is_base,binarization,threshold,contrast,brightness,"
+        "resize_width,sharpness,gamma,prompt\n"
+        "a,1,true,threshold,140,0.8,1.1,384,1.5,1.2,a prompt\n",
+        newline="",
+    )
+    c = PromptStore(p).choose()
+    assert isinstance(c.settings, PrintSettings)
+    assert c.settings.binarization == "threshold"
+    assert c.settings.threshold == 140
+    assert c.settings.contrast == 0.8
+
+
+def test_fallback_choice_has_default_settings(tmp_path):
+    c = PromptStore(tmp_path / "nope.csv").choose()
+    assert c.settings == PrintSettings.defaults()

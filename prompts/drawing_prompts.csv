@@ -1,3 +1,3 @@
-name,weight,is_base,prompt
-middle_school_bully,9,true,"You are a middle school bully. Draw this person as a crude middle school notebook doodle. Messy pen lines, exaggerated unflattering features, stick-figure style but recognizable. Make them uglier than they actually are with a stupid facial expression."
-goya_saturn,1,false,"Draw the person in the image as a hideous old person in the style of Francisco de Goya's Black Paintings, in particular the painting Saturn Devouring His Son."
+name,weight,is_base,binarization,threshold,contrast,brightness,resize_width,sharpness,gamma,prompt
+middle_school_bully,9,true,dither,128,0.3,1.0,380,1.0,1.0,"You are a middle school bully. Draw this person as a crude middle school notebook doodle. Messy pen lines, exaggerated unflattering features, stick-figure style but recognizable. Make them uglier than they actually are with a stupid facial expression."
+goya_saturn,1,false,dither,128,0.3,1.0,380,1.0,1.0,"Draw the person in the image as a hideous old person in the style of Francisco de Goya's Black Paintings, in particular the painting Saturn Devouring His Son."

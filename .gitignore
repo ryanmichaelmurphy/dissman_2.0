@@ -1,0 +1,7 @@
+# Local image-lab artifacts — never committed (per-machine, binary churn)
+prompt_testing/cache/
+prompt_testing/preview/
+
+# Python bytecode
+__pycache__/
+*.pyc

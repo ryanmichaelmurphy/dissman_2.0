@@ -18,7 +18,7 @@ python scripts/seed_active_csvs.py           # (re)seed insults/active/*.csv
 python print.py                              # thermal-printer smoke test (Pi only; prints "Hello from the Pi!" and cuts)
 ```
 
-- Tests cover the pure logic only — `insult_store.py`, `prompt_store.py`, `github_sync.py`. `dissman.py` (Kivy/GPIO/camera/printer) has no automated tests; verify UI changes by running the app.
+- Tests cover the pure logic only — `insult_store.py`, `prompt_store.py`, `print_pipeline.py`, `github_sync.py`, and the lab helpers (`prompt_testing/lab.py`). `dissman.py` (Kivy/GPIO/camera/printer) has no automated tests; verify UI changes by running the app.
 - There is no linter or build step configured.
 - On a dev machine without a camera, `CameraScreen` will fail to open `cv2.VideoCapture(0)`; the rest of the flow can still be exercised.
 
@@ -89,11 +89,18 @@ insults/
 - `insult_store.py` owns reads (`InsultStore.adjectives(cat)`, `.nouns(cat)`) and writes (`InsultStore.record_submission(cat, pos, word)`).
 - `github_sync.py` owns the async `git add/commit/push` of submissions. Network failures are logged but never raised.
 
+### Drawing prompts & per-prompt print settings
+
+- `prompts/drawing_prompts.csv` columns: `name,weight,is_base,binarization,threshold,contrast,brightness,resize_width,sharpness,gamma,prompt`. The print-variable columns (ordered most→least impactful) tune thermal output per prompt; defaults `dither,128,0.3,1.0,380,1.0,1.0` preserve the original hardcoded behavior.
+- `prompt_store.py` `PromptStore.choose()` returns a `PromptChoice(name, prompt, settings)` where `settings` is a `PrintSettings` parsed from the row.
+- `print_pipeline.py` `render_for_thermal(image, settings)` is the **single source of truth** for thermal rendering (resize → contrast → brightness → sharpness → gamma → binarize → mode "1"). Imported by **both** `dissman.py`'s print path and `prompt_testing/lab.py`, so tuned == printed.
+- **Tuning loop** (`prompt_testing/lab.py`, run during an SSH window): `dissman.service` owns the printer USB, so `sudo systemctl stop dissman` first. `--test prompt` calls the API on `test_photo.png`, caches the image + sidecar (auto-invalidates when the prompt text changes), and prints the moderation `.body` on rejection — use it to iterate wording past `moderation_blocked`. `--test print` reprints the cached image through the row's settings (`--preview` writes a PNG instead). Edit the CSV row → reprint → repeat; record winners by hand; `git commit`; `sudo systemctl start dissman`. The `cache/`/`preview/` dirs are gitignored.
+
 ## Key Integration Points
 
-- **OpenAI API**: `gpt-image-1` model via `images.edit()` endpoint. Sends captured photo with a prompt to generate an unflattering doodle. Returns base64 PNG (not URL). The prompt is chosen at call time by `PromptStore.choose()` (weighted-random over `prompts/drawing_prompts.csv`; falls back to `is_base=true` row, then a hardcoded `FALLBACK_PROMPT`). See the bypass note under "On desktop (development)".
+- **OpenAI API**: `gpt-image-1` model via `images.edit()` endpoint. Sends captured photo with a prompt to generate an unflattering doodle. Returns base64 PNG (not URL). The prompt (and its print settings) are chosen at call time by `PromptStore.choose()` (weighted-random over `prompts/drawing_prompts.csv`; falls back to `is_base=true` row, then a hardcoded `FALLBACK_PROMPT`). See the bypass note under "On desktop (development)".
 - **GPIO**: Pin 17, coin acceptor via `gpiozero.Button`. Callback triggers screen transition.
-- **Thermal Printer**: USB POS-5890 (vendor 0x0416, product 0x5011) via `python-escpos`. Images resized to 380x380, contrast reduced to 0.3 for thermal printing.
+- **Thermal Printer**: USB POS-5890 (vendor 0x0416, product 0x5011) via `python-escpos`. Image preprocessing (resize/contrast/binarization) is per-prompt via `print_pipeline.render_for_thermal`; see "Drawing prompts & per-prompt print settings".
 - **TTS**: `speak()` function dispatches to `espeak-ng` (Linux), `say` (macOS), or PowerShell (Windows) via subprocess.
 
 ## UI
