@@ -31,6 +31,7 @@ from gpiozero.exc import BadPinFactory
 #from signal import pause
 from escpos.printer import Usb
 from openai import OpenAI
+import openai
 from pathlib import Path
 import subprocess
 import sys
@@ -133,34 +134,50 @@ def start_image_generation(source_image_path, job, out_path):
         return None
 
     def _work():
-        choice = PROMPT_STORE.choose()
-        prompt_name, prompt_text = choice.name, choice.prompt
-        job.settings = choice.settings
-        print(f"[image-gen] using prompt '{prompt_name}'")
-        try:
-            with open(source_image_path, "rb") as f:
-                response = client.images.edit(
-                    model="gpt-image-1",
-                    image=f,
-                    prompt=prompt_text,
-                    n=1,
-                    size="1024x1024",
-                )
-            data = base64.b64decode(response.data[0].b64_json)
-            with open(out_path, "wb") as f:
-                f.write(data)
-            job.image_path = out_path
-            job.ready = True
-        except Exception as e:
-            # OpenAI errors carry the real reason (e.g. moderation_blocked,
-            # safety_violations) in `.body`; plain exceptions fall back to str().
-            # flush=True so it reaches the systemd journal immediately instead of
-            # sitting in a block buffer that never drains while the app runs.
-            detail = getattr(e, "body", None) or str(e)
-            status = getattr(e, "status_code", None)
-            print(f"[image-gen] failed: {type(e).__name__} "
-                  f"(status={status}): {detail}", flush=True)
-            job.error = True
+        final_choice = PromptChoice(
+            FINAL_FALLBACK_NAME, FINAL_FALLBACK, PrintSettings.defaults()
+        )
+        candidates = build_candidates(
+            primary=PROMPT_STORE.choose(),
+            is_base=PROMPT_STORE.base(),
+            last_successful=read_last_successful(LAST_SUCCESS_PATH),
+            final_fallback=final_choice,
+        )
+
+        for tier, choice in candidates:
+            print(f"[image-gen] attempt tier={tier} name='{choice.name}'", flush=True)
+            try:
+                with open(source_image_path, "rb") as f:
+                    response = client.images.edit(
+                        model="gpt-image-1", image=f, prompt=choice.prompt,
+                        n=1, size="1024x1024",
+                    )
+                data = base64.b64decode(response.data[0].b64_json)
+                with open(out_path, "wb") as f:
+                    f.write(data)
+                job.image_path = out_path
+                job.settings = choice.settings
+                job.ready = True
+                if tier != "final_fallback":
+                    write_last_successful(LAST_SUCCESS_PATH, choice)
+                print(f"[image-gen] success tier={tier} name='{choice.name}'", flush=True)
+                return
+            except openai.BadRequestError as e:
+                # content/moderation rejection — a different prompt may pass
+                detail = getattr(e, "body", None) or str(e)
+                print(f"[image-gen] rejected tier={tier} name='{choice.name}' "
+                      f"(status={getattr(e, 'status_code', None)}): {detail}", flush=True)
+                continue
+            except Exception as e:
+                # network/5xx/403/timeout — a different prompt cannot help; stop
+                detail = getattr(e, "body", None) or str(e)
+                print(f"[image-gen] failed (non-content) tier={tier} "
+                      f"name='{choice.name}': {type(e).__name__}: {detail}", flush=True)
+                job.error = True
+                return
+
+        print("[image-gen] all candidates rejected; giving up", flush=True)
+        job.error = True
 
     t = threading.Thread(target=_work, daemon=True)
     t.start()
@@ -175,8 +192,14 @@ Config.set('graphics', 'fullscreen', '1')
 from insult_store import InsultStore, CATEGORY_LABELS
 
 INSULT_STORE = InsultStore(BASE_DIR / "insults")
-from prompt_store import PromptStore
+from prompt_store import PromptStore, PromptChoice
+from print_pipeline import PrintSettings
+from prompt_fallback import (
+    build_candidates, read_last_successful, write_last_successful,
+    FINAL_FALLBACK, FINAL_FALLBACK_NAME,
+)
 PROMPT_STORE = PromptStore(BASE_DIR / "prompts" / "drawing_prompts.csv")
+LAST_SUCCESS_PATH = BASE_DIR / "prompts" / ".last_successful.json"
 
 # Category codes used internally: 'g', 'r', 'old', 'all'.
 # Display labels come from CATEGORY_LABELS; 'all' is "Anything Goes".
