@@ -3,7 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "prompt_testing"))
 
-from lab import cache_is_fresh, load_row
+from lab import cache_is_fresh, load_row, key_from_systemd_unit
 
 
 def test_cache_fresh_when_prompt_matches():
@@ -30,3 +30,17 @@ def test_load_row_finds_by_name():
 
 def test_load_row_missing_returns_none():
     assert load_row([{"name": "a"}], "z") is None
+
+
+def test_key_from_unit_plain():
+    unit = "[Service]\nEnvironment=OPENAI_API_KEY=sk-abc123\nExecStart=/x\n"
+    assert key_from_systemd_unit(unit) == "sk-abc123"
+
+
+def test_key_from_unit_quoted():
+    unit = 'Environment="OPENAI_API_KEY=sk-xyz"\n'
+    assert key_from_systemd_unit(unit) == "sk-xyz"
+
+
+def test_key_from_unit_absent_returns_none():
+    assert key_from_systemd_unit("[Service]\nExecStart=/x\n") is None

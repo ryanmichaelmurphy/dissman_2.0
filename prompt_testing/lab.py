@@ -26,6 +26,8 @@ import argparse
 import base64
 import csv
 import json
+import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -40,6 +42,32 @@ CACHE_DIR = HERE / "cache"
 PREVIEW_DIR = HERE / "preview"
 DEFAULT_INPUT = HERE / "test_photo.png"
 DEFAULT_CSV = ROOT / "prompts" / "drawing_prompts.csv"
+
+# On the Pi, dissman.service carries OPENAI_API_KEY in its Environment= line.
+# Reading it from there lets the lab run without manually exporting the key.
+SERVICE_UNIT = Path("/etc/systemd/system/dissman.service")
+
+
+def key_from_systemd_unit(text):
+    """Extract OPENAI_API_KEY from a systemd unit's Environment= line, or None."""
+    m = re.search(r"OPENAI_API_KEY=(\S+)", text)
+    if not m:
+        return None
+    return m.group(1).strip().strip('"').strip("'") or None
+
+
+def resolve_api_key():
+    """Find the OpenAI key without requiring a manual export.
+
+    Order: process env (which includes anything load_dotenv put there from a
+    .env) first; then, on the Pi, fall back to the dissman.service unit.
+    """
+    key = os.getenv("OPENAI_API_KEY")
+    if key:
+        return key
+    if SERVICE_UNIT.exists():
+        return key_from_systemd_unit(SERVICE_UNIT.read_text())
+    return None
 
 
 def load_row(rows, name):
@@ -96,7 +124,12 @@ def do_prompt(row, input_path, force):
     from dotenv import load_dotenv
 
     load_dotenv()
-    client = OpenAI()
+    api_key = resolve_api_key()
+    if not api_key:
+        print("[lab] No OPENAI_API_KEY found in the environment, a .env file, "
+              "or the dissman service unit.")
+        return 1
+    client = OpenAI(api_key=api_key)
 
     print(f"[lab] '{name}': calling images.edit on {input_path.name} ...")
     try:
