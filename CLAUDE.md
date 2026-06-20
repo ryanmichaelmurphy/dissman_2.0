@@ -15,6 +15,7 @@ pytest                                       # run the test suite (tests/)
 pytest tests/test_insult_store.py            # run one test file
 pytest tests/test_insult_store.py::test_load_preserves_duplicates   # one test
 python scripts/seed_active_csvs.py           # (re)seed insults/active/*.csv
+python print.py                              # thermal-printer smoke test (Pi only; prints "Hello from the Pi!" and cuts)
 ```
 
 - Tests cover the pure logic only — `insult_store.py`, `prompt_store.py`, `github_sync.py`. `dissman.py` (Kivy/GPIO/camera/printer) has no automated tests; verify UI changes by running the app.
