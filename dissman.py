@@ -32,8 +32,6 @@ from gpiozero.exc import BadPinFactory
 from escpos.printer import Usb
 from openai import OpenAI
 from pathlib import Path
-import pyttsx3
-from queue import Queue, Empty
 import subprocess
 import sys
 from dotenv import load_dotenv
@@ -63,26 +61,6 @@ except Exception as e:
     print(f"Printer init failed ({e}); printing disabled.")
     p = None
 
-
-_tts_q = Queue()
-_tts_engine = None
-_tts_worker_started = False
-
-def _tts_worker():
-    global _tts_engine
-    _tts_engine = pyttsx3.init()
-    _tts_engine.setProperty("rate", 150)
-    _tts_engine.setProperty("volume", 1.0)
-
-    while True:
-        try:
-            text = _tts_q.get()
-            if text is None:
-                break
-            _tts_engine.say(text)
-            _tts_engine.runAndWait()
-        except Exception as e:
-            print(f"TTS error: {e}")
 
 def speak(text: str):
     text = str(text)

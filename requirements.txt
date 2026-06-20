@@ -20,9 +20,6 @@ opencv-python==4.13.0.92
 numpy==2.4.6
 pillow==12.2.0
 
-# --- TTS ---
-pyttsx3==2.99
-
 # --- OpenAI SDK and locked transitive deps ---
 openai==2.37.0
 httpx==0.28.1
