@@ -18,7 +18,7 @@ python scripts/seed_active_csvs.py           # (re)seed insults/active/*.csv
 python print.py                              # thermal-printer smoke test (Pi only; prints "Hello from the Pi!" and cuts)
 ```
 
-- Tests cover the pure logic only — `insult_store.py`, `prompt_store.py`, `print_pipeline.py`, `github_sync.py`, and the lab helpers (`prompt_testing/lab.py`). `dissman.py` (Kivy/GPIO/camera/printer) has no automated tests; verify UI changes by running the app.
+- Tests cover the pure logic only — `insult_store.py`, `prompt_store.py`, `print_pipeline.py`, `prompt_fallback.py`, `github_sync.py`, and the lab helpers (`prompt_testing/lab.py`). `dissman.py` (Kivy/GPIO/camera/printer) has no automated tests; verify UI changes by running the app.
 - There is no linter or build step configured.
 - On a dev machine without a camera, `CameraScreen` will fail to open `cv2.VideoCapture(0)`; the rest of the flow can still be exercised.
 
@@ -98,7 +98,7 @@ insults/
 
 ## Key Integration Points
 
-- **OpenAI API**: `gpt-image-1` model via `images.edit()` endpoint. Sends captured photo with a prompt to generate an unflattering doodle. Returns base64 PNG (not URL). The prompt (and its print settings) are chosen at call time by `PromptStore.choose()` (weighted-random over `prompts/drawing_prompts.csv`; falls back to `is_base=true` row, then a hardcoded `FALLBACK_PROMPT`). See the bypass note under "On desktop (development)".
+- **OpenAI API**: `gpt-image-1` model via `images.edit()` endpoint. Sends captured photo with a prompt to generate an unflattering doodle. Returns base64 PNG (not URL). On content rejection (`openai.BadRequestError`, e.g. `moderation_blocked`), retries through a fallback chain: **primary** (chosen at call time by `PromptStore.choose()`) → **is_base** (`PromptStore.base()`) → **last_successful** (recovered from git-ignored `prompts/.last_successful.json`, which atomically records the last prompt that passed moderation and survives reboots) → **final fallback** (`"Make this person look really really happy and enthusiastic"`). Only content (400) rejections advance the chain; other errors (network, 5xx, 403, timeout) stop immediately. Each prompt's print settings travel with it through the chain. The final fallback is never persisted. The chain logic lives in `prompt_fallback.py` (pure, unit-tested) plus the `_work()` retry loop in `dissman.py`. See the bypass note under "On desktop (development)".
 - **GPIO**: Pin 17, coin acceptor via `gpiozero.Button`. Callback triggers screen transition.
 - **Thermal Printer**: USB POS-5890 (vendor 0x0416, product 0x5011) via `python-escpos`. Image preprocessing (resize/contrast/binarization) is per-prompt via `print_pipeline.render_for_thermal`; see "Drawing prompts & per-prompt print settings".
 - **TTS**: `speak()` function dispatches to `espeak-ng` (Linux), `say` (macOS), or PowerShell (Windows) via subprocess.

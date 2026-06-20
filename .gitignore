@@ -5,3 +5,6 @@ prompt_testing/preview/
 # Python bytecode
 __pycache__/
 *.pyc
+
+# Runtime: last prompt that passed moderation (survives the boot reset --hard)
+prompts/.last_successful.json
