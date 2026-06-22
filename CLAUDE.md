@@ -6,6 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Dissman ("InsultMaster 3.0") is a coin-operated Raspberry Pi kiosk that generates AI-powered insults with doodle-style artwork. Users insert a coin, choose an insult category, get photographed, and receive a printed AI-generated caricature with a personalized insult via thermal printer.
 
+## Companion docs
+
+- `README.md` — public functionality / setup / data-curation docs (tracked). Update it when behavior visible to a user or operator changes.
+- `prompt_testing/README.md` — the print/prompt lab CLI usage and flags reference (tracked).
+- `ARTIST.md` — the artist statement, printed-QR target. **Untracked in this repo** and verbatim from the legacy `ryanmichaelmurphy/dissman` repo; don't edit the prose without the maintainer.
+
+Keep architecture/internals detail here in `CLAUDE.md`, not duplicated into the READMEs.
+
 ## Commands
 
 ```
@@ -20,6 +28,7 @@ python print.py                              # thermal-printer smoke test (Pi on
 ```
 
 - Tests cover the pure logic only — `insult_store.py`, `prompt_store.py`, `print_pipeline.py`, `prompt_fallback.py`, `github_sync.py`, and the lab helpers (`prompt_testing/lab.py`). `dissman.py` (Kivy/GPIO/camera/printer) has no automated tests; verify UI changes by running the app.
+- **Windows dev env:** the bare `python`/`pytest` above assume the deps import. On the maintainer's Windows box the *system* Python lacks Pillow/openai — the working env is conda (Kivy 2.3.1 only ships wheels through Python 3.12). Run the app and tests through it: `& "C:\Users\Ryan\conda-envs\dissman\python.exe" -m pytest`. `pytest` is not pinned in `requirements.txt`; if a fresh env reports `No module named 'pytest'`, `pip install` it into that conda env rather than falling back to system Python.
 - There is no linter or build step configured.
 - On a dev machine without a camera, `CameraScreen` will fail to open `cv2.VideoCapture(0)`; the rest of the flow can still be exercised.
 
@@ -137,5 +146,7 @@ tail /home/dissman/Documents/app/boot-update.log
 ```
 
 `start.sh`, `boot-update.log`, and the systemd unit (`/etc/systemd/system/dissman.service` with `ExecStart=/home/dissman/Documents/app/start.sh`) handle the auto-pull. Old non-tracked files (`.bak`, `.save`, etc.) still live in the Pi's app dir but are ignored.
+
+**Reading Pi logs remotely (no SSH):** `start.sh` also publishes logs to the orphan `pi-logs` branch on GitHub. It keeps a git worktree at `/home/dissman/Documents/app-logs` checked out on `pi-logs`; the app launches under `python3 -u … | tee` so stdout/stderr are written to disk line-by-line and survive a hard power-off. On each boot, `start.sh` commits the *previous* session's captured log (plus `boot-update.log`) to `pi-logs` and pushes — so the session that just died shows up on the `pi-logs` branch after the next power-cycle. Read errors there instead of needing SSH. The worktree and branch never touch `main` or the boot-time `git reset --hard origin/main`, and the `pi-logs` push reuses the same git credentials as `github_sync`.
 
 **Note:** `start.sh` **is now tracked in this repo** (committed verbatim from the Pi). Because the Pi runs `git reset --hard origin/main` on every boot, edits to `start.sh` here now deploy automatically on the next reboot — it is no longer Pi-only/read-only. Keep it in sync with the running copy; a malformed `start.sh` (e.g. CRLF line endings breaking the shebang) would stop the app from launching, so preserve LF endings. The systemd unit (`/etc/systemd/system/dissman.service`) is **still not tracked** — it lives only on the Pi and editing it requires SSH.
