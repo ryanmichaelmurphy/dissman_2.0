@@ -134,15 +134,24 @@ def start_image_generation(source_image_path, job, out_path):
         return None
 
     def _work():
-        final_choice = PromptChoice(
-            FINAL_FALLBACK_NAME, FINAL_FALLBACK, PrintSettings.defaults()
-        )
-        candidates = build_candidates(
-            primary=PROMPT_STORE.choose(),
-            is_base=PROMPT_STORE.base(),
-            last_successful=read_last_successful(LAST_SUCCESS_PATH),
-            final_fallback=final_choice,
-        )
+        # Candidate assembly must not escape the try: an exception here (e.g.
+        # a CSV decode error in choose()) would otherwise kill the thread
+        # without setting job.error, and LoadScreen polls forever.
+        try:
+            final_choice = PromptChoice(
+                FINAL_FALLBACK_NAME, FINAL_FALLBACK, PrintSettings.defaults()
+            )
+            candidates = build_candidates(
+                primary=PROMPT_STORE.choose(),
+                is_base=PROMPT_STORE.base(),
+                last_successful=read_last_successful(LAST_SUCCESS_PATH),
+                final_fallback=final_choice,
+            )
+        except Exception as e:
+            print(f"[image-gen] candidate assembly failed: "
+                  f"{type(e).__name__}: {e}", flush=True)
+            job.error = True
+            return
 
         for tier, choice in candidates:
             print(f"[image-gen] attempt tier={tier} name='{choice.name}'", flush=True)

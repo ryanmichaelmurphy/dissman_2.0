@@ -138,3 +138,78 @@ def test_base_returns_none_when_no_is_base(tmp_path):
 
 def test_base_tolerates_missing_csv(tmp_path):
     assert PromptStore(tmp_path / "nope.csv").base() is None
+
+
+def test_fallback_prompt_matches_repo_csv_base_row():
+    """FALLBACK_PROMPT must never drift from the tuned is_base row.
+
+    Regression: commit 8d13e0a softened the CSV prompt because the old wording
+    was moderation-blocked in production, but FALLBACK_PROMPT kept the old
+    text — so any fallback reverted to the known-blocked wording.
+    """
+    repo_csv = Path(__file__).resolve().parent.parent / "prompts" / "drawing_prompts.csv"
+    with repo_csv.open(newline="", encoding="utf-8-sig") as f:
+        rows = list(csv.DictReader(f))
+    base = next(r for r in rows if r["is_base"].strip().lower() in ("true", "1", "yes"))
+    assert base["prompt"] == FALLBACK_PROMPT
+
+
+def test_fallback_logs_reason_when_csv_missing(tmp_path, capsys):
+    PromptStore(tmp_path / "nonexistent.csv").choose()
+    out = capsys.readouterr().out
+    assert "fallback" in out
+    assert "missing" in out
+
+
+def test_fallback_logs_reason_when_csv_empty(tmp_path, capsys):
+    p = tmp_path / "drawing_prompts.csv"
+    _write_csv(p, [])
+    PromptStore(p).choose()
+    out = capsys.readouterr().out
+    assert "fallback" in out
+    assert "no rows" in out
+
+
+def test_fallback_logs_reason_when_no_positive_weights_and_no_base(tmp_path, capsys):
+    p = tmp_path / "drawing_prompts.csv"
+    _write_csv(p, [
+        {"name": "a", "weight": "0", "is_base": "false", "prompt": "a prompt"},
+    ])
+    PromptStore(p).choose()
+    out = capsys.readouterr().out
+    assert "fallback" in out
+    assert "no positive weights" in out
+
+
+def test_base_row_selection_logs_degraded_state(tmp_path, capsys):
+    p = tmp_path / "drawing_prompts.csv"
+    _write_csv(p, [
+        {"name": "base", "weight": "oops", "is_base": "true", "prompt": "base prompt"},
+    ])
+    c = PromptStore(p).choose()
+    assert c.name == "base"
+    out = capsys.readouterr().out
+    assert "no positive weights" in out
+
+
+def test_choose_normal_path_logs_nothing(tmp_path, capsys):
+    p = tmp_path / "drawing_prompts.csv"
+    _write_csv(p, [
+        {"name": "a", "weight": "1", "is_base": "true", "prompt": "a prompt"},
+    ])
+    PromptStore(p).choose()
+    assert capsys.readouterr().out == ""
+
+
+def test_csv_with_utf8_bom_still_parses_all_columns(tmp_path):
+    """Excel 'CSV UTF-8' saves prepend a BOM; the first column name must not
+    become '\\ufeffname'. Regression guard for the scp-a-Windows-file workflow."""
+    p = tmp_path / "drawing_prompts.csv"
+    content = (
+        "name,weight,is_base,prompt\n"
+        "a,1,true,a prompt\n"
+    )
+    p.write_bytes(b"\xef\xbb\xbf" + content.encode("utf-8"))
+    c = PromptStore(p).choose()
+    assert c.name == "a"
+    assert c.prompt == "a prompt"

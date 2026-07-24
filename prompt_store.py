@@ -32,11 +32,15 @@ class PromptChoice:
     settings: PrintSettings
 
 
+# Keep in lockstep with the is_base row of prompts/drawing_prompts.csv —
+# enforced by test_fallback_prompt_matches_repo_csv_base_row. The old harsher
+# wording was moderation-blocked in production (softened in commit 8d13e0a).
 FALLBACK_PROMPT = (
-    "You are a middle school bully. Draw this person as a crude middle school "
-    "notebook doodle. Messy pen lines, exaggerated unflattering features, "
-    "stick-figure style but recognizable. Make them uglier than they actually "
-    "are with a stupid facial expression."
+    "You are a middle schooler joking on your friend. Draw this person as a "
+    "crude middle school notebook doodle. Messy pen lines, exaggerated "
+    "unflattering features, stick-figure style but recognizable. Make them "
+    "less attractive than they actually are with a blank and dull facial "
+    "expression."
 )
 
 
@@ -59,12 +63,17 @@ class PromptStore:
     def _load(self):
         if not self.csv_path.exists():
             return []
-        with self.csv_path.open(newline="") as f:
+        # utf-8-sig: tolerate a BOM from Excel "CSV UTF-8" saves, which would
+        # otherwise turn the first fieldname into '﻿name'.
+        with self.csv_path.open(newline="", encoding="utf-8-sig") as f:
             return list(csv.DictReader(f))
 
     def choose(self):
         rows = self._load()
         if not rows:
+            reason = "missing" if not self.csv_path.exists() else "no rows"
+            # flush=True so the reason reaches the systemd journal immediately.
+            print(f"[prompt-store] fallback: {self.csv_path} {reason}", flush=True)
             return PromptChoice("fallback", FALLBACK_PROMPT, PrintSettings.defaults())
 
         weighted = [(r, _parse_weight(r.get("weight"))) for r in rows]
@@ -80,8 +89,12 @@ class PromptStore:
 
         for r in rows:
             if _is_truthy(r.get("is_base")):
+                print(f"[prompt-store] no positive weights in {self.csv_path}; "
+                      f"using is_base row '{r.get('name', '')}'", flush=True)
                 return self._to_choice(r)
 
+        print(f"[prompt-store] fallback: no positive weights and no is_base "
+              f"row in {self.csv_path}", flush=True)
         return PromptChoice("fallback", FALLBACK_PROMPT, PrintSettings.defaults())
 
     def base(self):
