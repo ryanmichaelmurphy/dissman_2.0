@@ -9,7 +9,34 @@ Each prompt lives as one row in [`../prompts/drawing_prompts.csv`](../prompts/dr
 
 ---
 
+## Setup (dev machine)
+
+The lab needs only a small slice of the app's dependencies. Install the lean subset into a virtualenv — no Kivy/OpenCV/Pi libs required:
+
+```powershell
+# from the repo root
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1        # Windows PowerShell  (Linux/macOS: source .venv/bin/activate)
+python -m pip install -r requirements-dev.txt
+```
+
+`requirements-dev.txt` pins `openai`, `python-dotenv`, `pillow`, and `pytest` at the same versions as the full `requirements.txt`, so what the lab runs matches production. `--test prompt` also needs `OPENAI_API_KEY` in the environment or a `.env` file at the repo root (see below).
+
+---
+
 ## Quick start
+
+# Commands
+
+  cd /home/dissman/Documents/app
+  sudo systemctl stop dissman
+  python3 prompt_testing/lab.py --name goya_saturn --test prompt --force   
+  python3 prompt_testing/lab.py --name goya_saturn --test print            
+  sudo systemctl start dissman
+
+# Move to csv to Dissman with Prompts and Print Settings
+
+scp "C:\Users\rmich\Desktop\Ryan\dissman_2.0\prompts\drawing_prompts.csv" dissman@dissman.local:/home/dissman/Documents/app/prompts/drawing_prompts.csv
 
 ```bash
 # 1. Generate an image for a prompt (and check it isn't moderation-blocked)

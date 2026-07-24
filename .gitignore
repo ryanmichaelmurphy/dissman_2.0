@@ -8,3 +8,11 @@ __pycache__/
 
 # Runtime: last prompt that passed moderation (survives the boot reset --hard)
 prompts/.last_successful.json
+
+# Virtual environments (per-machine; recreate from requirements*.txt)
+.venv/
+venv/
+
+# Secrets — OpenAI key etc. loaded via python-dotenv
+.env
+.env.local

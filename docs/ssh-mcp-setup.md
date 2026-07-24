@@ -43,9 +43,58 @@ npm install
 npm run build          # produces build/index.js
 ```
 
-### 3. Register the MCP in Claude Code (user scope)
+### 3. Register the MCP in Claude Code
 
-Use the **absolute path** to the built `build/index.js` for this device's OS.
+There are two ways to register the server. **They register the same server under the
+same name (`claude-ssh-dissman`)** — pick one; don't run both on the same machine or
+they collide. See "Which registration to use" below.
+
+#### Option A — Project scope via committed `.mcp.json` (recommended)
+
+The repo ships a project-scoped [`.mcp.json`](../.mcp.json) at its root that declares this
+server. Claude Code offers it to anyone who opens the repo (after a one-time trust prompt).
+The committed file holds **no secret and no OS-specific path** — it references environment
+variables you set per device:
+
+```json
+{
+  "mcpServers": {
+    "claude-ssh-dissman": {
+      "command": "node",
+      "args": [
+        "${DISSMAN_SSH_MCP_PATH}",
+        "--host=${DISSMAN_HOST:-dissman.local}",
+        "--user=${DISSMAN_USER:-dissman}",
+        "--password=${DISSMAN_PI_PASSWORD}"
+      ]
+    }
+  }
+}
+```
+
+Set these environment variables on the device (values persist across shells/reboots):
+
+| Variable               | Required | Value                                                        |
+|------------------------|----------|--------------------------------------------------------------|
+| `DISSMAN_SSH_MCP_PATH` | yes      | Absolute path to this device's built `build/index.js`        |
+| `DISSMAN_PI_PASSWORD`  | yes      | The Pi's password (**never** commit this)                    |
+| `DISSMAN_HOST`         | no       | Defaults to `dissman.local`; override for VPN/real IP        |
+| `DISSMAN_USER`         | no       | Defaults to `dissman`                                        |
+
+Windows (persistent, user scope) — set once, then restart Claude Code:
+
+```powershell
+setx DISSMAN_SSH_MCP_PATH "C:/Users/rmich/mcp-servers/claude-ssh-server/build/index.js"
+setx DISSMAN_PI_PASSWORD  "<PI_PASSWORD>"
+```
+
+macOS/Linux: add `export DISSMAN_SSH_MCP_PATH=...` and `export DISSMAN_PI_PASSWORD=...`
+to your shell profile (`~/.zshrc`, `~/.bashrc`).
+
+#### Option B — User scope via CLI (per-device, not shared)
+
+Use the **absolute path** to the built `build/index.js` for this device's OS. This bakes
+the password into `~/.claude.json` on that one machine and does not travel with the repo.
 
 ```bash
 claude mcp add claude-ssh-dissman --scope user -- \
@@ -53,7 +102,7 @@ claude mcp add claude-ssh-dissman --scope user -- \
   --host=dissman.local --user=dissman --password=<PI_PASSWORD>
 ```
 
-Windows example (this device):
+Windows example:
 
 ```powershell
 claude mcp add claude-ssh-dissman --scope user -- node "C:/Users/rmich/mcp-servers/claude-ssh-server/build/index.js" --host=dissman.local --user=dissman --password=<PI_PASSWORD>
@@ -61,6 +110,19 @@ claude mcp add claude-ssh-dissman --scope user -- node "C:/Users/rmich/mcp-serve
 
 Alternatively, hand-edit the device's `~/.claude.json` `mcpServers` block with the same
 shape — just fix the absolute path and `command`/`args` for the new OS.
+
+#### Which registration to use
+
+- **A machine cloning the repo fresh:** use Option A — set the two env vars and go; the
+  `.mcp.json` is already there.
+- **A machine that already has the user-scope server (Option B):** the project `.mcp.json`
+  and the user-scope entry share the name `claude-ssh-dissman` and will conflict. Remove
+  the user-scope one to switch to the shared file: `claude mcp remove claude-ssh-dissman --scope user`.
+
+> **Secret hygiene:** `.mcp.json` is committed, so it must never contain the password —
+> only the `${DISSMAN_PI_PASSWORD}` placeholder. The real password lives in a per-device
+> env var and in your own records, never in git. Prefer key-based auth over a password
+> (see Gotchas).
 
 ### 4. Verify
 

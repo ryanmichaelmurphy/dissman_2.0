@@ -9,7 +9,8 @@ Dissman ("InsultMaster 3.0") is a coin-operated Raspberry Pi kiosk that generate
 ## Commands
 
 ```
-python -m pip install -r requirements.txt   # install deps (dev or Pi)
+python -m pip install -r requirements.txt       # full app deps (dev or Pi)
+python -m pip install -r requirements-dev.txt   # lab/test subset only (no Kivy/OpenCV/Pi libs)
 python dissman.py                            # run the kiosk app
 pytest                                       # run the test suite (tests/)
 pytest tests/test_insult_store.py            # run one test file
@@ -31,7 +32,7 @@ python print.py                              # thermal-printer smoke test (Pi on
 - Starts after `graphical.target` with 10-second delay, `DISPLAY=:0`
 - `OPENAI_API_KEY` is set in the service file's `Environment=` directive and in `~/.bashrc`
 - Pi runs Raspberry Pi OS with labwc (Wayland) compositor via lightdm
-- SSH accessible via MCP tool `claude-ssh-dissman` (an `exec` tool that runs shell commands on the Pi). Setup/replication steps are in `docs/ssh-mcp-setup.md`. The MCP server is registered at user scope and loads at **session start** — if you just registered it, restart Claude Code before its tools appear in-session.
+- SSH accessible via MCP tool `claude-ssh-dissman` (an `exec` tool that runs shell commands on the Pi). Setup/replication steps are in `docs/ssh-mcp-setup.md`. The server can be registered two ways (same name, don't run both): a committed project-scoped `.mcp.json` at the repo root that reads per-device env vars (`DISSMAN_SSH_MCP_PATH`, `DISSMAN_PI_PASSWORD`), or a per-machine user-scope entry. Either way the MCP tools load at **session start** — if you just registered it, restart Claude Code before its tools appear in-session. The `.mcp.json` never holds the password; it stays in a per-device env var, out of git.
 
 **On desktop (development):**
 - GPIO and printer gracefully disabled when not available (init wrapped in try/except)
@@ -40,16 +41,18 @@ python print.py                              # thermal-printer smoke test (Pi on
 - **OpenAI API is bypassed on Windows by default** (`USE_REAL_API` in `dissman.py`): the captured photo is copied through as the "doodle" so you can iterate without burning API calls. Set `DISSMAN_USE_API=1` to force the real `gpt-image-1` call. On Linux/macOS the real call always runs.
 - Requires `.env` file with `OPENAI_API_KEY` (loaded via `python-dotenv`) whenever the real API is used
 
-**Dependencies:** All versions pinned in `requirements.txt`.
+**Dependencies:** All versions pinned in `requirements.txt` (full app). `requirements-dev.txt` is a **subset** of the same pins — just what the lab (`prompt_testing/lab.py`) and the pytest suite need (`openai`, `python-dotenv`, `pillow`, `pytest` + transitives), with no Kivy/OpenCV/numpy/Pi hardware libs. Use a virtualenv so the pins are authoritative and don't leak into the global interpreter.
 
 Install (dev or Pi):
 ```
-python -m pip install -r requirements.txt
+python -m venv .venv                            # then activate: .venv\Scripts\Activate.ps1 (Win) or source .venv/bin/activate
+python -m pip install -r requirements.txt       # full app (running dissman.py)
+python -m pip install -r requirements-dev.txt   # lab/test only (prompt tuning, pytest)
 ```
 
 System packages on Pi: `espeak-ng` (`sudo apt install -y espeak-ng`).
 
-Bump procedure: install the new version of a single package locally, walk Dissman end-to-end, then update the `==` line in `requirements.txt`. The `pywin32` / `pypiwin32` / `comtypes` entries are Windows-only TTS shims that pip just skips on Linux. `gpiozero` and `python-escpos` install fine everywhere but only function on the Pi.
+Bump procedure: install the new version of a single package locally, walk Dissman end-to-end, then update the `==` line in `requirements.txt`. **If the bumped package is also in `requirements-dev.txt` (`openai`, `python-dotenv`, `pillow`, and their shared transitives), mirror the new pin there too** so the two files stay in lockstep. The `pywin32` / `pypiwin32` / `comtypes` entries are Windows-only TTS shims that pip just skips on Linux. `gpiozero` and `python-escpos` install fine everywhere but only function on the Pi.
 
 ## Architecture
 

@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "claude-ssh-dissman": {
+      "command": "node",
+      "args": [
+        "${DISSMAN_SSH_MCP_PATH}",
+        "--host=${DISSMAN_HOST:-dissman.local}",
+        "--user=${DISSMAN_USER:-dissman}",
+        "--password=${DISSMAN_PI_PASSWORD}"
+      ]
+    }
+  }
+}
