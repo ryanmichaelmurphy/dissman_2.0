@@ -1,0 +1,5 @@
+- Still showing image of last person with new picture
+- Test fallback with intentionally bad prompt
+- Sensitivity of touch screen for input
+- Check QR code location
+- Add prompts
