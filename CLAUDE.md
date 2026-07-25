@@ -32,6 +32,12 @@ python print.py                              # thermal-printer smoke test (Pi on
 - There is no linter or build step configured.
 - On a dev machine without a camera, `CameraScreen` will fail to open `cv2.VideoCapture(0)`; the rest of the flow can still be exercised.
 
+## Git Workflow
+
+- Commit every change with a descriptive message.
+- On a branch other than `main`: push after committing.
+- On `main`: commit, but **do not push until the maintainer explicitly says to** (pushes to `main` deploy to the Pi on its next power-cycle).
+
 ## Running & Deploying
 
 **On Raspberry Pi (production):**
