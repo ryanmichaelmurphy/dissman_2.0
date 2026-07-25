@@ -220,8 +220,11 @@ CATEGORY_DISPLAY = [
 ]
 
 class ThemedButton(Button):
+    DEBOUNCE_SECONDS = 0.25
+
     def __init__(self, **kwargs):
         super(ThemedButton, self).__init__(**kwargs)
+        self._last_accepted_touch = 0.0
         self.font_name = App.get_running_app().fonts['button']
         self.font_size = '18sp'
         self.color = App.get_running_app().theme_colors['primary']
@@ -237,6 +240,16 @@ class ThemedButton(Button):
 
     def update_border(self, *args):
         self.border_line.rectangle = (self.x, self.y, self.width, self.height)
+
+    def on_touch_down(self, touch):
+        # Touchscreen jitter fires duplicate touches; swallow repeats on the
+        # same button inside the debounce window.
+        if self.collide_point(*touch.pos):
+            now = time.monotonic()
+            if now - self._last_accepted_touch < self.DEBOUNCE_SECONDS:
+                return True
+            self._last_accepted_touch = now
+        return super(ThemedButton, self).on_touch_down(touch)
 
 class InsultScreen(Screen):
     def generate_insults(self, category: str) -> list[str]:
@@ -271,16 +284,25 @@ class InsultScreen(Screen):
             self.manager.current = 'load'
 
 class CameraScreen(Screen):
+    def _clear_stale_images(self):
+        # Clear the previously-captured still and the previous live frame so
+        # nothing from the last run shows while the screen appears.
+        self.ids.captured_image.source = ''
+        self.ids.captured_image.texture = None
+        if hasattr(self, 'img1'):
+            self.img1.texture = None
+
+    def on_pre_enter(self, *args):
+        # Runs before the screen is drawn, so the previous user's photo is
+        # gone before the first frame renders.
+        self._clear_stale_images()
+
+    def on_leave(self, *args):
+        self._clear_stale_images()
+
     def on_enter(self):
         speak("Let me get a good look at you")
         os.system('clear')
-
-        # Clear the previously-captured still and the previous live frame so
-        # nothing from the last run flashes before the new preview starts.
-        self.ids.captured_image.source = ''
-        self.ids.captured_image.texture = None
-
-        self.setup_camera()
 
         if not hasattr(self, 'img1'):
             self.img1 = Image()
@@ -296,20 +318,24 @@ class CameraScreen(Screen):
                 color=[0, 0, 0]
             )
             self.add_widget(self.overlay_text)
-        else:
-            self.img1.texture = None
+
+        self.camera = None
+        threading.Thread(target=self.setup_camera, daemon=True).start()
 
         Clock.schedule_interval(self.update_preview, 1 / 30)
         Clock.schedule_once(self.capture_image, 7)
 
     def setup_camera(self):
-        # Initialize the camera
-        self.camera = cv2.VideoCapture(0)
-        if not self.camera.isOpened():
+        # Runs off the UI thread: cv2.VideoCapture can block for seconds,
+        # which would freeze rendering with stale content still on screen.
+        camera = cv2.VideoCapture(0)
+        if not camera.isOpened():
             print("Error: Could not open camera.")
-            return
+        self.camera = camera
 
     def update_preview(self, dt):
+        if self.camera is None:
+            return
         ret, frame = self.camera.read()
         if ret:
             # Display frame in a GUI element
@@ -341,6 +367,10 @@ class CameraScreen(Screen):
         Animation(opacity=0.0, duration=0.3).start(self.flash_widget)
 
     def capture_image(self, dt):
+        if self.camera is None:
+            # Camera still opening; try again shortly.
+            Clock.schedule_once(self.capture_image, 0.5)
+            return
         ret, frame = self.camera.read()
         frame = cv2.convertScaleAbs(frame, alpha=1.0, beta=50)
         if not ret:
@@ -361,16 +391,34 @@ class CameraScreen(Screen):
         out_path = f'{path}downloaded_image_{timestamp}.png'
         start_image_generation(save_path, app.image_job, out_path)
 
-        Clock.schedule_once(self.go_to_insult, 1.5)
+        Clock.schedule_once(self.go_to_interlude, 1.5)
 
-    def go_to_insult(self, dt):
+    def go_to_interlude(self, dt):
         prev = self.manager.transition
         self.manager.transition = SlideTransition(direction='left', duration=0.4)
-        self.manager.current = 'insult'
+        self.manager.current = 'interlude'
 
         def _restore(_):
             self.manager.transition = prev
         Clock.schedule_once(_restore, 0.5)
+
+class InterludeScreen(Screen):
+    def on_enter(self, *args):
+        if not hasattr(self, "image_widget"):
+            self.image_widget = Image(source=f'{path}thinking0.png')
+            self.add_widget(self.image_widget)
+        else:
+            self.image_widget.source = f'{path}thinking0.png'
+        self.current_image = 0
+        self.frame_event = Clock.schedule_interval(self.advance_frame, 0.3)
+
+    def advance_frame(self, dt):
+        self.current_image += 1
+        if self.current_image > 15:
+            self.frame_event.cancel()
+            self.manager.current = 'insult'
+            return False
+        self.image_widget.source = f'{path}thinking{self.current_image}.png'
 
 class LoadScreen(Screen):
     def on_enter(self, *args):
@@ -771,6 +819,7 @@ class InsultMasterApp(App):
         self.sm.add_widget(CategoryScreen(name='category'))
         self.sm.add_widget(InsultScreen(name='insult'))
         self.sm.add_widget(CameraScreen(name='camera'))
+        self.sm.add_widget(InterludeScreen(name='interlude'))
         self.sm.add_widget(LoadScreen(name='load'))
         self.sm.add_widget(DisplayScreen(name='display'))
         self.sm.add_widget(TeachCategoryScreen(name='teach_category'))
