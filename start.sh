@@ -32,10 +32,13 @@ LOG="$APP/boot-update.log"
   echo "===== $(date -Is) log-sync ====="
 
   # First boot (or after a re-clone): create the logs worktree from origin.
+  # The Pi's clone only tracks main, so fetch pi-logs with an explicit refspec
+  # (a bare `fetch origin pi-logs` never creates origin/pi-logs) and skip
+  # --track (it refuses a ref outside the configured fetch refspec).
   if [ ! -e "$LOGDIR/.git" ]; then
-    if timeout 20 git fetch --quiet origin pi-logs; then
+    if timeout 20 git fetch --quiet origin +refs/heads/pi-logs:refs/remotes/origin/pi-logs; then
       git worktree prune
-      git worktree add --track -B pi-logs "$LOGDIR" origin/pi-logs \
+      git worktree add -B pi-logs "$LOGDIR" origin/pi-logs \
         && echo "created logs worktree at $LOGDIR"
     else
       echo "could not fetch pi-logs; skipping log sync this boot"
@@ -53,7 +56,7 @@ LOG="$APP/boot-update.log"
 
     # This Pi is the only writer and filenames are unique per boot, so a
     # fast-forward push is the norm; rebase just in case the branch moved.
-    if timeout 20 git -C "$LOGDIR" fetch --quiet origin pi-logs; then
+    if timeout 20 git -C "$LOGDIR" fetch --quiet origin +refs/heads/pi-logs:refs/remotes/origin/pi-logs; then
       git -C "$LOGDIR" rebase --quiet origin/pi-logs || git -C "$LOGDIR" rebase --abort
     fi
     timeout 30 git -C "$LOGDIR" push --quiet origin pi-logs \
