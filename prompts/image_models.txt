@@ -1,0 +1,13 @@
+# Image models for the doodle, tried in this order (one per line, # comments).
+#
+# When a model fails because it's retired/unavailable (404, 403, or a non-
+# moderation 400), Dissman skips it for the rest of the boot and tries the
+# next one. If every model fails, the customer gets their raw photo printed.
+#
+# When OpenAI retires a model (see developers.openai.com/api/docs/deprecations),
+# edit this list and push to main; the Pi picks it up on its next reboot.
+# Look for "MODEL UNAVAILABLE" in the pi-logs branch to spot a dead model.
+
+gpt-image-2.5-flare      # fast, high-quality everyday generation
+gpt-image-2.5-sunburst   # most capable; same token price as flare
+gpt-image-1-mini         # cheapest; RETIRES 2026-12-01 - remove after that
