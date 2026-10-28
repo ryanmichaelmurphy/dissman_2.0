@@ -16,3 +16,6 @@ venv/
 # Secrets — OpenAI key etc. loaded via python-dotenv
 .env
 .env.local
+
+# Boot-time stash of unpushed user submissions (submission_recovery.py)
+.submission-stash/

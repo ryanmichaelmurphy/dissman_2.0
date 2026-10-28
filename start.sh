@@ -8,8 +8,12 @@ LOGDIR=/home/dissman/Documents/app-logs   # git worktree checked out on 'pi-logs
 cd "$APP" || exit 1
 
 LOG="$APP/boot-update.log"
+STASH="$APP/.submission-stash"   # gitignored; carries unpushed submissions across the reset
 {
   echo "===== $(date -Is) boot ====="
+  # Stash user-submitted insults that never reached GitHub *before* fetching
+  # (compares against the last-known origin/main), so the reset can't lose them.
+  timeout 20 /usr/bin/python3 "$APP/submission_recovery.py" save "$APP" "$STASH"
   if timeout 20 git fetch --quiet origin main; then
     LOCAL=$(git rev-parse HEAD)
     REMOTE=$(git rev-parse origin/main)
@@ -22,6 +26,8 @@ LOG="$APP/boot-update.log"
   else
     echo "git fetch failed or timed out; launching offline"
   fi
+  # Re-append any stashed submissions the fresh checkout lacks, commit, push.
+  timeout 90 /usr/bin/python3 "$APP/submission_recovery.py" restore "$APP" "$STASH"
 } >>"$LOG" 2>&1
 
 # --- Publish the previous session's logs to the 'pi-logs' branch -----------
