@@ -27,7 +27,7 @@ python scripts/seed_active_csvs.py           # (re)seed insults/active/*.csv
 python print.py                              # thermal-printer smoke test (Pi only; prints "Hello from the Pi!" and cuts)
 ```
 
-- Tests cover the pure logic only — `insult_store.py`, `prompt_store.py`, `print_pipeline.py`, `prompt_fallback.py`, `github_sync.py`, and the lab helpers (`prompt_testing/lab.py`). `dissman.py` (Kivy/GPIO/camera/printer) has no automated tests; verify UI changes by running the app.
+- Tests cover the pure logic only — `insult_store.py`, `prompt_store.py`, `print_pipeline.py`, `prompt_fallback.py`, `image_models.py`, `github_sync.py`, and the lab helpers (`prompt_testing/lab.py`). `dissman.py` (Kivy/GPIO/camera/printer) has no automated tests; verify UI changes by running the app.
 - **Windows dev env:** the bare `python`/`pytest` above assume the deps import. On the maintainer's Windows box the *system* Python lacks Pillow/openai — the working env is conda (Kivy 2.3.1 only ships wheels through Python 3.12). Run the app and tests through it: `& "C:\Users\Ryan\conda-envs\dissman\python.exe" -m pytest`. `pytest` is not pinned in `requirements.txt`; if a fresh env reports `No module named 'pytest'`, `pip install` it into that conda env rather than falling back to system Python.
 - There is no linter or build step configured.
 - On a dev machine without a camera, `CameraScreen` will fail to open `cv2.VideoCapture(0)`; the rest of the flow can still be exercised.
@@ -53,7 +53,7 @@ python print.py                              # thermal-printer smoke test (Pi on
 - GPIO and printer gracefully disabled when not available (init wrapped in try/except)
 - Coin insertion simulated with 5-second timer
 - TTS uses platform-native speech (PowerShell on Windows, `say` on macOS)
-- **OpenAI API is bypassed on Windows by default** (`USE_REAL_API` in `dissman.py`): the captured photo is copied through as the "doodle" so you can iterate without burning API calls. Set `DISSMAN_USE_API=1` to force the real `gpt-image-1` call. On Linux/macOS the real call always runs.
+- **OpenAI API is bypassed on Windows by default** (`USE_REAL_API` in `dissman.py`): the captured photo is copied through as the "doodle" so you can iterate without burning API calls. Set `DISSMAN_USE_API=1` to force the real image API call. On Linux/macOS the real call always runs.
 - Requires `.env` file with `OPENAI_API_KEY` (loaded via `python-dotenv`) whenever the real API is used
 
 **Dependencies:** All versions pinned in `requirements.txt` (full app). `requirements-dev.txt` is a **subset** of the same pins — just what the lab (`prompt_testing/lab.py`) and the pytest suite need (`openai`, `python-dotenv`, `pillow`, `pytest` + transitives), with no Kivy/OpenCV/numpy/Pi hardware libs. Use a virtualenv so the pins are authoritative and don't leak into the global interpreter.
@@ -74,17 +74,18 @@ Bump procedure: install the new version of a single package locally, walk Dissma
 Kivy app (`dissman.py`) with screens managed by `ScreenManager`. The image-generation API call now runs in parallel with insult selection: the API kicks off as soon as the photo is captured, and the user picks their insult while the doodle is generating.
 
 ```
-SplashScreen → CategoryScreen → CameraScreen → InsultScreen → (LoadScreen if not ready) → DisplayScreen
-                                                                                         ↓
-                                          TeachCategoryScreen ← TeachAdjScreen ← TeachNounScreen ← TeachSubmitScreen → Splash
+SplashScreen → CategoryScreen → CameraScreen → InterludeScreen → InsultScreen → (LoadScreen if not ready) → DisplayScreen
+                                                                                                           ↓
+                                                            TeachCategoryScreen ← TeachAdjScreen ← TeachNounScreen ← TeachSubmitScreen → Splash
 ```
 
 - **SplashScreen**: Idle. Coin animation. GPIO pin 17. Random insults on the hour/half-hour.
 - **CategoryScreen**: G-rated, R-rated, Old-timey, Anything Goes. Stores a category CODE (`g`/`r`/`old`/`all`) on the manager.
-- **CameraScreen**: Runs a 30fps live preview, captures a still ~7s after entering. On capture it fires `start_image_generation` in a background thread (writes to `app.image_job`), then transitions to InsultScreen 1.5s later.
+- **CameraScreen**: Runs a 30fps live preview, captures a still ~7s after entering. On capture it replaces `app.image_job` with a **fresh `ImageJob`** (so a previous customer's slow thread can only write to its own orphaned job) and fires `start_image_generation` in a background thread, then slides to InterludeScreen 1.5s later. A failed frame read retries in 0.5s.
+- **InterludeScreen**: 16-frame "thinking" animation (~4.8s), then InsultScreen.
 - **InsultScreen**: Generates 3 adj+noun combos from `InsultStore` for the chosen category. After pick: if `image_job.ready`, jumps to DisplayScreen; otherwise LoadScreen.
-- **LoadScreen**: 16-frame "thinking" animation polling `app.image_job`. Transitions to DisplayScreen when ready; back to SplashScreen on `image_job.error`.
-- **DisplayScreen**: Shows doodle + insult with staggered TTS. Thermal-prints. Two buttons: QR code, and "Insult Dissman to teach him new insults". Auto-returns to Splash after 10s (timer cancelled if user enters teach flow).
+- **LoadScreen**: 16-frame "thinking" animation polling `app.image_job`. Transitions to DisplayScreen when ready. After 120s without a result it degrades the job to the raw photo (see OpenAI API below). `image_job.error` (only set when there's no photo at all) logs, speaks "Something broke", and returns to Splash.
+- **DisplayScreen**: Shows doodle + insult with staggered TTS (when `image_job.degraded`, it says "My art brain is broken. This is what you actually look like." and shifts the insult speech later). Thermal-prints. Two buttons: QR code, and "Insult Dissman to teach him new insults". Auto-returns to Splash after 10s (timer cancelled if user enters teach flow).
 - **TeachCategoryScreen → TeachAdjScreen → TeachNounScreen → TeachSubmitScreen**: User-submitted insult flow. Adjective and noun entered via Kivy `VKeyboard`. Submission appended to `insults/submissions/{adjectives,nouns}.csv` and pushed to GitHub asynchronously via `github_sync.push_submission_async`.
 
 ## Insult storage
@@ -116,7 +117,12 @@ insults/
 
 ## Key Integration Points
 
-- **OpenAI API**: `gpt-image-1` model via `images.edit()` endpoint. Sends captured photo with a prompt to generate an unflattering doodle. Returns base64 PNG (not URL). On content rejection (`openai.BadRequestError`, e.g. `moderation_blocked`), retries through a fallback chain: **primary** (chosen at call time by `PromptStore.choose()`) → **is_base** (`PromptStore.base()`) → **last_successful** (recovered from git-ignored `prompts/.last_successful.json`, which atomically records the last prompt that passed moderation and survives reboots) → **final fallback** (`"Make this person look really really happy and enthusiastic"`). Only content (400) rejections advance the chain; other errors (network, 5xx, 403, timeout) stop immediately. Each prompt's print settings travel with it through the chain. The final fallback is never persisted. The chain logic lives in `prompt_fallback.py` (pure, unit-tested) plus the `_work()` retry loop in `dissman.py`. See the bypass note under "On desktop (development)".
+- **OpenAI API**: `images.edit()` with `quality="low"`, `size="1024x1024"` (output is shrunk to ~380px and binarized, so low is indistinguishable on paper). Sends captured photo with a prompt to generate an unflattering doodle. Returns base64 PNG (not URL). `image_models.py` is the **single source of truth** for the call (`edit_image`, `EDIT_PARAMS`, `make_client` with `timeout=90, max_retries=1`) — imported by both `dissman.py` and `prompt_testing/lab.py`.
+  - **Models** come from the tracked `prompts/image_models.txt` (preference order; falls back to `image_models.DEFAULT_MODELS` if missing). `gpt-image-1` was retired 2026-10-23; the current list is `gpt-image-2.5-flare` → `gpt-image-2.5-sunburst` → `gpt-image-1-mini` (retires 2026-12-01). When OpenAI retires a model, edit that file and push — no code change.
+  - **Error classes** (`image_models.classify_error`): **content** = `BadRequestError` with `moderation_blocked`/safety → next *prompt*; **model** = `NotFoundError`, `PermissionDeniedError`, or any other 400 → next *model*, and `ModelRoster` drops it until reboot (last-good model is tried first); **fatal** = auth, rate limit/quota, connection/timeout, 5xx, anything else → stop.
+  - **Degraded print**: when the chain is exhausted, hits a fatal error, exceeds `CHAIN_DEADLINE_SECONDS` (150s), or there's no key, `degrade_to_photo` makes the raw photo the "doodle" (`job.degraded=True`, default print settings) so the customer still gets a printout. The client is built lazily, so a missing key degrades instead of crashing at import.
+  - **Logging**: every failure logs `describe_error` (type, status, request_id, code, body, `__cause__`); non-API exceptions add a traceback; success logs model + `usage`. At boot `log_image_api_status()` logs key presence (last 4 chars), openai version and the model list, then probes each model with `models.retrieve` and logs `MODEL UNAVAILABLE: <model>` for a 404 — grep for it on the `pi-logs` branch.
+  - **Prompt fallback chain** (outer loop; models are the inner loop): on content rejection, retries through **primary** (chosen at call time by `PromptStore.choose()`) → **is_base** (`PromptStore.base()`) → **last_successful** (recovered from git-ignored `prompts/.last_successful.json`, which atomically records the last prompt that passed moderation and survives reboots) → **final fallback** (`"Make this person look really really happy and enthusiastic"`). Each prompt's print settings travel with it through the chain. The final fallback is never persisted. The chain logic lives in `prompt_fallback.py` + `image_models.py` (pure, unit-tested) plus the `_work()` retry loop in `dissman.py`. See the bypass note under "On desktop (development)".
 - **GPIO**: Pin 17, coin acceptor via `gpiozero.Button`. Callback triggers screen transition.
 - **Thermal Printer**: USB POS-5890 (vendor 0x0416, product 0x5011) via `python-escpos`. Image preprocessing (resize/contrast/binarization) is per-prompt via `print_pipeline.render_for_thermal`; see "Drawing prompts & per-prompt print settings".
 - **TTS**: `speak()` function dispatches to `espeak-ng` (Linux), `say` (macOS), or PowerShell (Windows) via subprocess.

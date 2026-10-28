@@ -60,10 +60,11 @@ The image is generated **once** and cached, so step 2 can be repeated as many ti
 | `--name <row>` | yes | both | Which prompt to test, matched against the `name` column of the CSV (e.g. `middle_school_bully`, `goya_saturn`). |
 | `--test prompt` | yes | — | Call the OpenAI image API on the test photo, cache the result, and report **accepted / rejected** (printing the exact moderation reason on rejection). |
 | `--test print` | yes | — | Render the cached image through the row's print settings and **print it** on the POS-5890. |
-| `--preview` | no | `--test print` | Write the processed 1-bit image to `preview/<name>.png` **instead of printing** (no paper, works off the Pi). |
+| `--preview` | no | `--test print` | Write the processed 1-bit image to `preview/<name>__<model>.png` **instead of printing** (no paper, works off the Pi). |
 | `--force` | no | `--test prompt` | Regenerate the image even if a fresh one is cached. |
 | `--input <path>` | no | `--test prompt` | Use a different source photo (default: `prompt_testing/test_photo.png`). |
 | `--csv <path>` | no | both | Use a different prompts CSV (default: `prompts/drawing_prompts.csv`). |
+| `--model <name>` | no | both | Image model to use (default: first line of `prompts/image_models.txt`). Images are cached per prompt **and** model, so you can compare models side by side. |
 
 If `--name` doesn't match any row, the lab lists the available names and exits.
 
@@ -75,8 +76,16 @@ If `--name` doesn't match any row, the lab lists the available names and exits.
 python3 prompt_testing/lab.py --name middle_school_bully --test prompt
 ```
 
-- **Accepted** → the raw image is cached to `cache/<name>.png`.
-- **Rejected** → no image; the exact API reason (e.g. `moderation_blocked`, `safety_violations=[abuse]`) is printed and saved to `cache/<name>.json`.
+- **Accepted** → the raw image is cached to `cache/<name>__<model>.png`, and the token `usage`, an estimated cost, and the elapsed time are printed and saved in the sidecar.
+- **Rejected** → no image; the exact API reason (e.g. `moderation_blocked`, `safety_violations=[abuse]`, or `NotFoundError` for a retired model) is printed and saved to `cache/<name>__<model>.json`.
+
+The call is `image_models.edit_image` — the same function, model list and `quality="low"` the kiosk uses. Compare models:
+
+```bash
+python3 prompt_testing/lab.py --name middle_school_bully --test prompt --model gpt-image-2.5-flare
+python3 prompt_testing/lab.py --name middle_school_bully --test prompt --model gpt-image-2.5-sunburst
+python3 prompt_testing/lab.py --name middle_school_bully --test print --model gpt-image-2.5-sunburst --preview
+```
 
 To get a blocked prompt to pass: edit the `prompt` text in the CSV row, then run `--test prompt` again. The lab notices the wording changed and **regenerates automatically**. Use `--force` to regenerate even when the wording is unchanged.
 
@@ -94,7 +103,7 @@ Preview to screen instead of wasting paper (also runs off the Pi):
 
 ```bash
 python3 prompt_testing/lab.py --name middle_school_bully --test print --preview
-# writes prompt_testing/preview/middle_school_bully.png
+# writes prompt_testing/preview/middle_school_bully__<model>.png
 ```
 
 ### Print variables (CSV columns), most → least impactful

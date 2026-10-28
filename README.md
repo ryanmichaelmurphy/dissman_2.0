@@ -8,7 +8,7 @@ For the artistic intent behind the piece, see [ARTIST.md](ARTIST.md).
 
 1. **Insert a coin.** The splash screen waits for a signal on GPIO pin 17 (coin acceptor). While waiting, Dissman periodically mutters insults aloud.
 2. **Choose a category.** G-rated, R-rated, Old-timey, or Anything Goes.
-3. **Smile (or don't).** A webcam captures your photo, a white flash fires, and the image is sent to OpenAI's `gpt-image-1` to be redrawn as a doodle.
+3. **Smile (or don't).** A webcam captures your photo, a white flash fires, and the image is sent to OpenAI's image API (`gpt-image-2.5-flare` by default) to be redrawn as a doodle. If the API fails entirely, your raw photo is printed instead.
 4. **Pick your insult.** While the doodle is generating, you're shown three randomly assembled adjective + noun combos from the active word list for the category you picked.
 5. **Receive your insult.** The doodle and insult are displayed on screen, spoken aloud with dramatic timing, and printed on the thermal printer. A QR code is also printed linking to this repo and the artist statement.
 6. **Optionally, teach Dissman a new insult.** A second flow lets users submit their own adjectives and nouns, which are pushed to GitHub for later curation.
@@ -24,7 +24,7 @@ For the artistic intent behind the piece, see [ARTIST.md](ARTIST.md).
 ## Software
 
 - **App:** Kivy 2.3.1 (`dissman.py`, layout in `insultmaster3.kv`)
-- **Image generation:** OpenAI `gpt-image-1` via `images.edit()`
+- **Image generation:** OpenAI GPT Image models via `images.edit()` at `quality="low"` (models listed in `prompts/image_models.txt`)
 - **TTS:** `espeak-ng` (Linux), `say` (macOS), or PowerShell `System.Speech` (Windows)
 - **Printer:** `python-escpos`
 - **GPIO:** `gpiozero`
@@ -50,7 +50,7 @@ You'll need an `OPENAI_API_KEY` in `.env` (loaded by `python-dotenv`).
 python -m pytest tests/ -q
 ```
 
-Tests cover the pure-Python data layer (`insult_store.py`, `github_sync.py`, `prompt_store.py`). The Kivy UI isn't unit-tested — verify changes by running the app.
+Tests cover the pure-Python logic (`insult_store.py`, `github_sync.py`, `prompt_store.py`, `prompt_fallback.py`, `image_models.py`, `print_pipeline.py`, lab helpers). The Kivy UI isn't unit-tested — verify changes by running the app.
 
 ## Data: how to add or change insults
 
@@ -66,7 +66,8 @@ insults/
     └── nouns.csv
 
 prompts/
-└── drawing_prompts.csv   # weighted drawing-style prompts for the image API
+├── drawing_prompts.csv   # weighted drawing-style prompts for the image API
+└── image_models.txt      # image models to try, in order
 ```
 
 **Categories:** `g`, `r`, `old`. (`all` is a runtime union of the three.)
@@ -76,6 +77,8 @@ prompts/
 **Approving a submission:** copy the row from `insults/submissions/*.csv` into the matching `insults/active/*.csv`. Paste 2–3 times to boost its draw frequency.
 
 **Tuning drawing prompts:** edit weights in `prompts/drawing_prompts.csv`. No code change needed. Each row also carries per-prompt print settings (`binarization,threshold,contrast,brightness,resize_width,sharpness,gamma`) that control how the doodle is rendered for the thermal printer.
+
+**When OpenAI retires an image model:** the kiosk automatically skips a model that comes back as not found / unavailable and tries the next one in `prompts/image_models.txt`; if none work it prints the customer's raw photo. To fix it properly, check [OpenAI's deprecations page](https://developers.openai.com/api/docs/deprecations), edit `prompts/image_models.txt` (one model per line, best first), test with the lab (`--model <name>`), and push to `main`. A `MODEL UNAVAILABLE` line on the `pi-logs` branch means a listed model is gone.
 
 **Testing prompts & print quality:** `prompt_testing/lab.py` lets you (1) check whether a prompt passes OpenAI moderation and (2) tune the print settings against the real printer, without touching the kiosk app. One API call is cached, then reprinted with different settings:
 
@@ -102,6 +105,7 @@ insultmaster3.kv       # screen layouts
 insult_store.py        # read/write of active + submitted CSVs
 prompt_store.py        # weighted-random selection of drawing prompts + settings
 print_pipeline.py      # shared thermal-render pipeline (app + lab)
+image_models.py        # image-model list, error classes, the shared images.edit call
 github_sync.py         # async push of user-submitted insults
 start.sh               # boot wrapper: auto-pull then launch
 insults/               # word data (active + submissions)
