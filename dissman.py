@@ -30,19 +30,33 @@ from gpiozero import Button as GPIOButton
 from gpiozero.exc import BadPinFactory
 #from signal import pause
 from escpos.printer import Usb
-from openai import OpenAI
 import openai
 from pathlib import Path
 import subprocess
 import sys
+import traceback
 from dotenv import load_dotenv
 import github_sync
+from image_models import (
+    EDIT_PARAMS, ModelRoster, classify_error, describe_error, edit_image,
+    load_models, make_client,
+)
 
 load_dotenv()
 
 GPIO_PIN = 17
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+_client = None
 coin_acceptor = None
+
+
+def _get_client():
+    """Build the OpenAI client on first use (None if there's no key), so a
+    missing key degrades a session instead of crashing the app at import."""
+    global _client
+    if _client is None and OPENAI_API_KEY:
+        _client = make_client(OPENAI_API_KEY)
+    return _client
 
 # path to files
 BASE_DIR = Path(__file__).resolve().parent
@@ -97,18 +111,17 @@ def speak(text: str):
 
 
 class ImageJob:
-    """Holds state for the in-flight or completed image generation."""
+    """Holds state for one capture's image generation.
+
+    A fresh ImageJob is created per capture, so a slow thread from a previous
+    customer can only ever write to its own (orphaned) job.
+    """
 
     def __init__(self):
         self.image_path = None
         self.ready = False
         self.error = False
-        self.settings = None
-
-    def reset(self):
-        self.image_path = None
-        self.ready = False
-        self.error = False
+        self.degraded = False   # True when image_path is the raw photo, not a doodle
         self.settings = None
 
 
@@ -116,11 +129,59 @@ class ImageJob:
 # use the captured photo. Set DISSMAN_USE_API=1 to force the real call.
 USE_REAL_API = (not sys.platform.startswith("win")) or os.getenv("DISSMAN_USE_API") == "1"
 
+# Image models in preference order (tracked file, so a retirement fix deploys
+# via git pull). Models that fail as retired/unavailable drop out until reboot.
+IMAGE_MODELS = load_models(Path(__file__).resolve().parent / "prompts" / "image_models.txt")
+MODEL_ROSTER = ModelRoster(IMAGE_MODELS)
+
+# Stop walking the prompt x model fallback chain after this much wall clock.
+CHAIN_DEADLINE_SECONDS = 150
+
+
+def log_image_api_status():
+    """Boot diagnostics: log the API config, then probe each model (free) so a
+    retired model shows up in pi-logs without waiting for a customer."""
+    key = OPENAI_API_KEY
+    key_state = f"set (...{key[-4:]})" if key else "MISSING"
+    print(f"[image-gen] boot: USE_REAL_API={USE_REAL_API} openai={openai.__version__} "
+          f"key={key_state} models={IMAGE_MODELS} quality={EDIT_PARAMS['quality']}",
+          flush=True)
+    client = _get_client() if USE_REAL_API else None
+    if client is None:
+        return
+
+    def _probe():
+        for model in IMAGE_MODELS:
+            try:
+                client.models.retrieve(model)
+                print(f"[image-gen] model ok: {model}", flush=True)
+            except openai.NotFoundError as e:
+                # Logged only: a real 404 at call time drops it from the roster.
+                print(f"[image-gen] MODEL UNAVAILABLE: {model}: {describe_error(e)}",
+                      flush=True)
+            except Exception as e:
+                print(f"[image-gen] model check failed for {model}: {describe_error(e)}",
+                      flush=True)
+
+    threading.Thread(target=_probe, daemon=True).start()
+
+
+def degrade_to_photo(job, source_image_path, reason):
+    """Image generation failed: print the raw photo so the customer still gets
+    something for their coin. Only a missing photo is a hard error."""
+    if source_image_path and os.path.exists(source_image_path):
+        print(f"[image-gen] DEGRADED: printing raw photo ({reason})", flush=True)
+        job.image_path = source_image_path
+        job.settings = PrintSettings.defaults()
+        job.degraded = True
+        job.ready = True
+    else:
+        print(f"[image-gen] ERROR: no photo to fall back to ({reason})", flush=True)
+        job.error = True
+
 
 def start_image_generation(source_image_path, job, out_path):
     """Fire the GPT image edit in a background thread. Updates `job` in place."""
-    job.reset()
-
     if not USE_REAL_API:
         print("[image-gen] bypass mode: using captured photo as doodle")
         import shutil
@@ -134,6 +195,12 @@ def start_image_generation(source_image_path, job, out_path):
         return None
 
     def _work():
+        deadline = time.monotonic() + CHAIN_DEADLINE_SECONDS
+        client = _get_client()
+        if client is None:
+            degrade_to_photo(job, source_image_path, "no OPENAI_API_KEY")
+            return
+
         # Candidate assembly must not escape the try: an exception here (e.g.
         # a CSV decode error in choose()) would otherwise kill the thread
         # without setting job.error, and LoadScreen polls forever.
@@ -150,43 +217,56 @@ def start_image_generation(source_image_path, job, out_path):
         except Exception as e:
             print(f"[image-gen] candidate assembly failed: "
                   f"{type(e).__name__}: {e}", flush=True)
-            job.error = True
+            traceback.print_exc()
+            degrade_to_photo(job, source_image_path, "candidate assembly failed")
             return
 
+        # Outer loop: prompts (a moderation rejection moves to the next one).
+        # Inner loop: models (a retired/unavailable model moves to the next one
+        # and stays dropped until reboot). Account/network/server errors stop.
         for tier, choice in candidates:
-            print(f"[image-gen] attempt tier={tier} name='{choice.name}'", flush=True)
-            try:
-                with open(source_image_path, "rb") as f:
-                    response = client.images.edit(
-                        model="gpt-image-1", image=f, prompt=choice.prompt,
-                        n=1, size="1024x1024",
-                    )
-                data = base64.b64decode(response.data[0].b64_json)
-                with open(out_path, "wb") as f:
-                    f.write(data)
+            for model in MODEL_ROSTER.alive():
+                if time.monotonic() > deadline:
+                    degrade_to_photo(job, source_image_path,
+                                     f"gave up after {CHAIN_DEADLINE_SECONDS}s")
+                    return
+                print(f"[image-gen] attempt tier={tier} name='{choice.name}' "
+                      f"model={model}", flush=True)
+                try:
+                    data, usage = edit_image(client, model, source_image_path, choice.prompt)
+                    with open(out_path, "wb") as f:
+                        f.write(data)
+                except Exception as e:
+                    kind = classify_error(e)
+                    print(f"[image-gen] {kind} error tier={tier} name='{choice.name}' "
+                          f"model={model}: {describe_error(e)}", flush=True)
+                    if not isinstance(e, openai.OpenAIError):
+                        traceback.print_exc()
+                    if kind == "content":
+                        break
+                    if kind == "model":
+                        MODEL_ROSTER.mark_dead(model)
+                        continue
+                    degrade_to_photo(job, source_image_path, type(e).__name__)
+                    return
+
+                MODEL_ROSTER.mark_good(model)
                 job.image_path = out_path
                 job.settings = choice.settings
                 job.ready = True
                 if tier != "final_fallback":
                     write_last_successful(LAST_SUCCESS_PATH, choice)
-                print(f"[image-gen] success tier={tier} name='{choice.name}'", flush=True)
+                print(f"[image-gen] success tier={tier} name='{choice.name}' "
+                      f"model={model} quality={EDIT_PARAMS['quality']} usage={usage}",
+                      flush=True)
                 return
-            except openai.BadRequestError as e:
-                # content/moderation rejection — a different prompt may pass
-                detail = getattr(e, "body", None) or str(e)
-                print(f"[image-gen] rejected tier={tier} name='{choice.name}' "
-                      f"(status={getattr(e, 'status_code', None)}): {detail}", flush=True)
-                continue
-            except Exception as e:
-                # network/5xx/403/timeout — a different prompt cannot help; stop
-                detail = getattr(e, "body", None) or str(e)
-                print(f"[image-gen] failed (non-content) tier={tier} "
-                      f"name='{choice.name}': {type(e).__name__}: {detail}", flush=True)
-                job.error = True
+            else:
+                # No content rejection broke out: every model is dead.
+                degrade_to_photo(job, source_image_path,
+                                 f"no image model available (tried {IMAGE_MODELS})")
                 return
 
-        print("[image-gen] all candidates rejected; giving up", flush=True)
-        job.error = True
+        degrade_to_photo(job, source_image_path, "all prompts rejected by moderation")
 
     t = threading.Thread(target=_work, daemon=True)
     t.start()
@@ -372,9 +452,12 @@ class CameraScreen(Screen):
             Clock.schedule_once(self.capture_image, 0.5)
             return
         ret, frame = self.camera.read()
-        frame = cv2.convertScaleAbs(frame, alpha=1.0, beta=50)
-        if not ret:
+        if not ret or frame is None:
+            # A dropped frame used to crash convertScaleAbs; retry instead.
+            print("[camera] capture read failed; retrying", flush=True)
+            Clock.schedule_once(self.capture_image, 0.5)
             return
+        frame = cv2.convertScaleAbs(frame, alpha=1.0, beta=50)
 
         timestamp = str(int(time.time()))
         save_path = path + 'test_' + timestamp + '.png'
@@ -389,6 +472,9 @@ class CameraScreen(Screen):
 
         app = App.get_running_app()
         out_path = f'{path}downloaded_image_{timestamp}.png'
+        # Fresh job per capture: an earlier customer's still-running thread
+        # holds a reference to its own job and can't touch this session.
+        app.image_job = ImageJob()
         start_image_generation(save_path, app.image_job, out_path)
 
         Clock.schedule_once(self.go_to_interlude, 1.5)
@@ -421,19 +507,30 @@ class InterludeScreen(Screen):
         self.image_widget.source = f'{path}thinking{self.current_image}.png'
 
 class LoadScreen(Screen):
+    # Backstop for a hung API call: after this long, print the raw photo.
+    TIMEOUT_SECONDS = 120
+
     def on_enter(self, *args):
         if not hasattr(self, "image_widget"):
             self.image_widget = Image(source=f'{path}thinking0.png')
             self.add_widget(self.image_widget)
         self.current_image = 1
+        self._entered_at = time.monotonic()
         speak("Thinking bad thoughts about you.")
         Clock.schedule_interval(self.check_image_ready, 0.3)
 
     def check_image_ready(self, dt):
         app = App.get_running_app()
-        if app.image_job.error:
-            self.manager.current = 'splash'
+        job = app.image_job
+        if job.error:
+            print("[load] image job failed with no photo; returning to splash", flush=True)
+            speak("Something broke. Try again.")
+            Clock.schedule_once(lambda _: setattr(self.manager, 'current', 'splash'), 2.5)
             return False
+
+        if not job.ready and time.monotonic() - self._entered_at > self.TIMEOUT_SECONDS:
+            degrade_to_photo(job, getattr(app, 'last_image_path', None),
+                             f"LoadScreen waited {self.TIMEOUT_SECONDS}s")
 
         num_images = 16
         self.current_image = (self.current_image + 1) % num_images
@@ -466,19 +563,25 @@ class DisplayScreen(Screen):
         # insult_text format is "you [adj] [noun]."
         parts = insult_text.split(' ')
 
-        # Schedule the speech with explicit delays for dramatic effect
-        speak("This is what you look like.")
+        # Schedule the speech with explicit delays for dramatic effect.
+        # The degraded (raw photo) intro is longer, so push the insult back.
+        if getattr(App.get_running_app().image_job, "degraded", False):
+            speak("My art brain is broken. This is what you actually look like.")
+            offset = 2.5
+        else:
+            speak("This is what you look like.")
+            offset = 0.0
 
         # "you" after 2 seconds
-        Clock.schedule_once(lambda dt: speak(parts[0]), 2.0)
+        Clock.schedule_once(lambda dt: speak(parts[0]), 2.0 + offset)
 
         # [adj] after 3.2 seconds
         if len(parts) > 1:
-            Clock.schedule_once(lambda dt: speak(parts[1]), 3.2)
+            Clock.schedule_once(lambda dt: speak(parts[1]), 3.2 + offset)
 
         # [noun] after 4.7 seconds
         if len(parts) > 2:
-            Clock.schedule_once(lambda dt: speak(parts[2]), 4.7)
+            Clock.schedule_once(lambda dt: speak(parts[2]), 4.7 + offset)
 
         self.print_image_and_text(dall_e_image_path, insult_text, p)
 
@@ -815,6 +918,7 @@ class InsultMasterApp(App):
         self.sm = ScreenManager(transition=NoTransition())
         self.teach_submission = {}
         self.image_job = ImageJob()
+        log_image_api_status()
         self.sm.add_widget(SplashScreen(name='splash'))
         self.sm.add_widget(CategoryScreen(name='category'))
         self.sm.add_widget(InsultScreen(name='insult'))
