@@ -11,6 +11,10 @@ Two modes against ONE prompt row of prompts/drawing_prompts.csv:
   --test print  : render the cached image through that row's print variables
                   and print it on the POS-5890. --preview writes a PNG instead.
 
+--model picks the image model (default: first line of prompts/image_models.txt);
+images are cached per (prompt, model) so models can be compared side by side.
+The call itself is image_models.edit_image, i.e. exactly what the kiosk sends.
+
 The realistic Pi workflow (printer is owned by dissman.service):
   sudo systemctl stop dissman
   export OPENAI_API_KEY=...        # or: set -a; . /home/dissman/Documents/app/.env; set +a
@@ -23,7 +27,6 @@ The realistic Pi workflow (printer is owned by dissman.service):
 from __future__ import annotations
 
 import argparse
-import base64
 import csv
 import json
 import os
@@ -36,12 +39,25 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from print_pipeline import PrintSettings, render_for_thermal  # noqa: E402
+from image_models import (  # noqa: E402
+    EDIT_PARAMS, describe_error, edit_image, load_models, make_client,
+)
 
 HERE = Path(__file__).resolve().parent
 CACHE_DIR = HERE / "cache"
 PREVIEW_DIR = HERE / "preview"
 DEFAULT_INPUT = HERE / "test_photo.png"
 DEFAULT_CSV = ROOT / "prompts" / "drawing_prompts.csv"
+MODELS_FILE = ROOT / "prompts" / "image_models.txt"
+
+# USD per 1M tokens, for the cost readout. From developers.openai.com/api/docs/pricing
+# (2026-10). Unknown models use the 2.5 rates.
+TOKEN_RATES = {
+    "gpt-image-2.5-flare":    {"image_in": 8.00, "text_in": 5.00, "image_out": 30.00},
+    "gpt-image-2.5-sunburst": {"image_in": 8.00, "text_in": 5.00, "image_out": 30.00},
+    "gpt-image-1-mini":       {"image_in": 2.50, "text_in": 2.00, "image_out": 8.00},
+}
+DEFAULT_RATES = TOKEN_RATES["gpt-image-2.5-flare"]
 
 # On the Pi, dissman.service carries OPENAI_API_KEY in its Environment= line.
 # Reading it from there lets the lab run without manually exporting the key.
@@ -77,13 +93,40 @@ def load_row(rows, name):
     return None
 
 
-def cache_is_fresh(sidecar, prompt_text):
-    """A cache entry is fresh only if it was ACCEPTED and the prompt is unchanged."""
+def cache_is_fresh(sidecar, prompt_text, quality=None):
+    """Fresh only if ACCEPTED and the prompt (and quality, if given) is unchanged."""
     if not sidecar:
         return False
     if sidecar.get("status") != "accepted":
         return False
+    if quality is not None and sidecar.get("quality") != quality:
+        return False
     return sidecar.get("prompt") == prompt_text
+
+
+def usage_dict(usage):
+    """SDK usage object (or dict/None) -> plain dict."""
+    if usage is None:
+        return {}
+    if hasattr(usage, "model_dump"):
+        return usage.model_dump()
+    return dict(usage) if isinstance(usage, dict) else {}
+
+
+def estimate_cost(usage, model):
+    """Estimated USD for one call from its usage block, or None if unknown."""
+    u = usage_dict(usage)
+    if not u:
+        return None
+    rates = TOKEN_RATES.get(model, DEFAULT_RATES)
+    details = u.get("input_tokens_details") or {}
+    image_in = details.get("image_tokens")
+    text_in = details.get("text_tokens")
+    if image_in is None and text_in is None:
+        image_in, text_in = u.get("input_tokens") or 0, 0
+    out = u.get("output_tokens") or 0
+    return ((image_in or 0) * rates["image_in"] + (text_in or 0) * rates["text_in"]
+            + out * rates["image_out"]) / 1_000_000
 
 
 def _read_rows(csv_path):
@@ -91,36 +134,42 @@ def _read_rows(csv_path):
         return list(csv.DictReader(f))
 
 
-def _sidecar_path(name):
-    return CACHE_DIR / f"{name}.json"
+def cache_stem(name, model):
+    """Cache filename stem: one entry per (prompt row, model)."""
+    return f"{name}__{model}"
 
 
-def _image_path(name):
-    return CACHE_DIR / f"{name}.png"
+def _sidecar_path(name, model):
+    return CACHE_DIR / f"{cache_stem(name, model)}.json"
 
 
-def _load_sidecar(name):
-    p = _sidecar_path(name)
+def _image_path(name, model):
+    return CACHE_DIR / f"{cache_stem(name, model)}.png"
+
+
+def _load_sidecar(name, model):
+    p = _sidecar_path(name, model)
     if p.exists():
         return json.loads(p.read_text())
     return None
 
 
-def _write_sidecar(name, data):
+def _write_sidecar(name, model, data):
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    _sidecar_path(name).write_text(json.dumps(data, indent=2))
+    _sidecar_path(name, model).write_text(json.dumps(data, indent=2, default=str))
 
 
-def do_prompt(row, input_path, force):
+def do_prompt(row, input_path, force, model):
     name = row["name"]
     prompt_text = row["prompt"]
-    sidecar = _load_sidecar(name)
+    quality = EDIT_PARAMS["quality"]
+    sidecar = _load_sidecar(name, model)
 
-    if not force and cache_is_fresh(sidecar, prompt_text) and _image_path(name).exists():
-        print(f"[lab] '{name}': cached image is fresh; use --force to regenerate.")
+    if (not force and cache_is_fresh(sidecar, prompt_text, quality)
+            and _image_path(name, model).exists()):
+        print(f"[lab] '{name}' [{model}]: cached image is fresh; use --force to regenerate.")
         return 0
 
-    from openai import OpenAI
     from dotenv import load_dotenv
 
     load_dotenv()
@@ -129,43 +178,47 @@ def do_prompt(row, input_path, force):
         print("[lab] No OPENAI_API_KEY found in the environment, a .env file, "
               "or the dissman service unit.")
         return 1
-    client = OpenAI(api_key=api_key)
+    client = make_client(api_key)
 
-    print(f"[lab] '{name}': calling images.edit on {input_path.name} ...")
+    print(f"[lab] '{name}': calling images.edit on {input_path.name} "
+          f"(model={model}, quality={quality}) ...")
+    started = time.monotonic()
     try:
-        with open(input_path, "rb") as f:
-            resp = client.images.edit(
-                model="gpt-image-1", image=f, prompt=prompt_text, n=1,
-                size="1024x1024",
-            )
-        data = base64.b64decode(resp.data[0].b64_json)
+        data, usage = edit_image(client, model, input_path, prompt_text)
+        elapsed = time.monotonic() - started
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        _image_path(name).write_bytes(data)
-        _write_sidecar(name, {
+        _image_path(name, model).write_bytes(data)
+        u = usage_dict(usage)
+        cost = estimate_cost(u, model)
+        _write_sidecar(name, model, {
             "name": name, "prompt": prompt_text, "input": input_path.name,
-            "model": "gpt-image-1", "status": "accepted", "ts": int(time.time()),
+            "model": model, "quality": quality, "status": "accepted",
+            "usage": u, "est_cost_usd": cost, "seconds": round(elapsed, 1),
+            "ts": int(time.time()),
         })
-        print(f"[lab] '{name}': ACCEPTED -> cached {_image_path(name)}")
+        print(f"[lab] '{name}' [{model}]: ACCEPTED in {elapsed:.1f}s "
+              f"-> cached {_image_path(name, model)}")
+        cost_txt = f"~${cost:.4f}" if cost is not None else "unknown"
+        print(f"      usage={u}  est. cost {cost_txt}")
         return 0
     except Exception as e:  # noqa: BLE001 — we want the raw reason
-        detail = getattr(e, "body", None) or str(e)
         status = getattr(e, "status_code", None)
-        _write_sidecar(name, {
+        _write_sidecar(name, model, {
             "name": name, "prompt": prompt_text, "input": input_path.name,
-            "model": "gpt-image-1", "status": "rejected",
+            "model": model, "quality": quality, "status": "rejected",
             "error_type": type(e).__name__, "http_status": status,
-            "error_body": detail, "ts": int(time.time()),
+            "error": describe_error(e), "ts": int(time.time()),
         })
-        print(f"[lab] '{name}': REJECTED ({type(e).__name__}, status={status})")
-        print(f"      {detail}")
+        print(f"[lab] '{name}' [{model}]: REJECTED ({type(e).__name__}, status={status})")
+        print(f"      {describe_error(e)}")
         return 1
 
 
-def do_print(row, preview):
+def do_print(row, preview, model):
     name = row["name"]
-    img_path = _image_path(name)
+    img_path = _image_path(name, model)
     if not img_path.exists():
-        print(f"[lab] '{name}': no cached image. Run --test prompt first.")
+        print(f"[lab] '{name}' [{model}]: no cached image. Run --test prompt first.")
         return 1
 
     from PIL import Image
@@ -178,7 +231,7 @@ def do_print(row, preview):
 
     if preview:
         PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
-        out = PREVIEW_DIR / f"{name}.png"
+        out = PREVIEW_DIR / f"{cache_stem(name, model)}.png"
         processed.save(out)
         print(f"[lab] '{name}': preview written {out}  [{label}]")
         return 0
@@ -186,11 +239,11 @@ def do_print(row, preview):
     from escpos.printer import Usb
 
     p = Usb(0x0416, 0x5011, in_ep=0x81, out_ep=0x01, profile="POS-5890")
-    tmp = CACHE_DIR / f"_print_{name}.png"
+    tmp = CACHE_DIR / f"_print_{cache_stem(name, model)}.png"
     processed.save(tmp)
     try:
         p._raw(b"\x1b\x40")
-        p.text(f"\n{name}\n{label}\n\n")
+        p.text(f"\n{name}\n{model}\n{label}\n\n")
         p.image(str(tmp))
         p.text("\n\n\n")
         p._raw(b"\x1b\x40")
@@ -213,7 +266,10 @@ def main(argv=None):
     ap.add_argument("--input", default=str(DEFAULT_INPUT),
                     help="source photo for prompt mode")
     ap.add_argument("--csv", default=str(DEFAULT_CSV))
+    ap.add_argument("--model", default=None,
+                    help="image model (default: first in prompts/image_models.txt)")
     args = ap.parse_args(argv)
+    model = args.model or load_models(MODELS_FILE)[0]
 
     rows = _read_rows(args.csv)
     row = load_row(rows, args.name)
@@ -223,8 +279,8 @@ def main(argv=None):
         return 2
 
     if args.test == "prompt":
-        return do_prompt(row, Path(args.input), args.force)
-    return do_print(row, args.preview)
+        return do_prompt(row, Path(args.input), args.force, model)
+    return do_print(row, args.preview, model)
 
 
 if __name__ == "__main__":
